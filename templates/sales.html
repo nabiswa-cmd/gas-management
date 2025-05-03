@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sales Form</title>
+    <style>
+        .container {
+            display: flex;
+            gap: 30px;
+            padding: 20px;
+        }
+        .sales-table {
+            width: 60%;
+        }
+        .sales-form {
+            width: 40%;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+            border-collapse: collapse;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        fieldset {
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Gas Sale Entry</h2>
+    <div class="container">
+        <!-- Recent Sales Table -->
+        <div class="sales-table">
+            <h3>Recent Sales</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Gas</th>
+                        <th>Cash</th>
+                        <th>Till</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sale in sales %}
+                    <tr>
+                        <td>{{ sale[0] }}</td>
+                        <td>{{ sale[1] }}</td>
+                        <td>KSH {{ "%.2f"|format(sale[2]) }}</td>
+                        <td>KSH {{ "%.2f"|format(sale[3]) }}</td>
+                        <td>{{ sale[4] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Sales Form -->
+        <div class="sales-form">
+            <form method="POST" action="/submit-sale">
+                <label for="gas_id">Gas Name:</label>
+                <select name="gas_id" required>
+                    {% for gas in gases %}
+                    <option value="{{ gas[0] }}">
+                        {{ gas[1] }} (Empty: {{ gas[2] }}, Filled: {{ gas[3] }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <br><br>
+
+                <label for="amount_paid_cash">Amount Paid (Cash):</label>
+                <input type="number" name="amount_paid_cash" step="0.01" required><br><br>
+
+                <label for="amount_paid_till">Amount Paid (Till):</label>
+                <input type="number" name="amount_paid_till" step="0.01" required><br><br>
+
+                <fieldset>
+                    <legend>Source</legend>
+                    <label><input type="checkbox" name="source_kipsongo_pioneer"> Kipsongo Pioneer</label><br>
+                    <label><input type="checkbox" name="source_mama_pam"> Mama Pam</label><br>
+                    <label><input type="checkbox" name="source_external"> External Source</label>
+                </fieldset>
+                <br>
+
+                <fieldset>
+                    <legend>Status</legend>
+                    <label><input type="checkbox" name="complete_power"> Complete Power</label><br>
+                    <label><input type="checkbox" name="empty_not_given"> Empty Not Given</label><br>
+                    <label><input type="checkbox" name="exchange_cylinder"> Exchange of Cylinder</label>
+                </fieldset>
+                <br>
+
+                <button type="submit">Submit Sale</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

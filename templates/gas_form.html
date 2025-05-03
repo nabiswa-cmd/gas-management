@@ -1,0 +1,26 @@
+<!-- templates/gas_form.html -->
+<h2>Add New Gas</h2>
+<form method="POST">
+    Gas Name: <input type="text" name="gas_name" required><br>
+    Empty Cylinders: <input type="number" name="empty_cylinders" required><br>
+    Filled Cylinders: <input type="number" name="filled_cylinders" required><br>
+    <button type="submit">Add Gas</button>
+</form>
+
+<h2>Gas List</h2>
+<table border="1">
+    <tr>
+        <th>ID</th><th>Name</th><th>Empty</th><th>Filled</th><th>Total</th>
+    </tr>
+    {% for gas in gases %}
+    <tr>
+        <td>{{ gas[0] }}</td>
+        <td>{{ gas[1] }}</td>
+        <td>{{ gas[2] }}</td>
+        <td>{{ gas[3] }}</td>
+        <td>{{ gas[2] + gas[3] }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+</head>
+<body>
+    <h2>Welcome, {{ username }}</h2>
+
+    <button onclick="window.location.href='/sales'">Sales Form</button>
+    <button onclick="window.location.href='/refill'">Refill Gas Form</button>
+    <a href="{{ url_for('gas_form') }}">
+        <button>Add/View Gas</button>
+    </a>
+    
+</body>
+</html>
