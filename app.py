@@ -33,42 +33,42 @@ def sales_form():
         return render_template("sales.html", gases=gases, sales=sales)
     except Exception as e:
         return f"Error: {e}"
-
-
+from datetime import datetime
 
 @app.route("/submit-sale", methods=["POST"])
 def submit_sale():
-    data = {
-        "gas_id": request.form["gas_id"],
-        "amount_paid_cash": float(request.form["amount_paid_cash"]),
-        "amount_paid_till": float(request.form["amount_paid_till"]),
-        "source_kipsongo_pioneer": 'source_kipsongo_pioneer' in request.form,
-        "source_mama_pam": 'source_mama_pam' in request.form,
-        "source_external": 'source_external' in request.form,
-        "complete_power": 'complete_power' in request.form,
-        "empty_not_given": 'empty_not_given' in request.form,
-        "exchange_cylinder": 'exchange_cylinder' in request.form
-    }
+    gas_id = request.form['gas_id']
+    amount_paid_cash = request.form['amount_paid_cash']
+    amount_paid_till = request.form['amount_paid_till']
 
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO sales_table (
-                gas_id, amount_paid_cash, amount_paid_till,
-                source_kipsongo_pioneer, source_mama_pam, source_external,
-                complete_power, empty_not_given, exchange_cylinder
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
-        """, (
-            data["gas_id"], data["amount_paid_cash"], data["amount_paid_till"],
-            data["source_kipsongo_pioneer"], data["source_mama_pam"], data["source_external"],
-            data["complete_power"], data["empty_not_given"], data["exchange_cylinder"]
-        ))
-        conn.commit()
-        conn.close()
-        return redirect("/sales-form")
-    except Exception as e:
-        return f"Error: {e}"
+    source_kipsongo_pioneer = 'source_kipsongo_pioneer' in request.form
+    source_mama_pam = 'source_mama_pam' in request.form
+    source_external = 'source_external' in request.form
+
+    complete_power = 'complete_power' in request.form
+    empty_not_given = 'empty_not_given' in request.form
+    exchange_cylinder = 'exchange_cylinder' in request.form
+
+    time_sold = datetime.now()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO sales_table (
+            gas_id, amount_paid_cash, amount_paid_till,
+            source_kipsongo_pioneer, source_mama_pam, source_external,
+            complete_power, empty_not_given, exchange_cylinder, time_sold
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (
+        gas_id, amount_paid_cash, amount_paid_till,
+        source_kipsongo_pioneer, source_mama_pam, source_external,
+        complete_power, empty_not_given, exchange_cylinder, time_sold
+    ))
+    conn.commit()
+    conn.close()
+
+    return redirect("/sales-form")
+
 @app.route("/debug-gases")
 def debug_gases():
     conn = get_connection()
