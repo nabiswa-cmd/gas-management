@@ -49,7 +49,7 @@ try:
     INSERT INTO users (username, password)
     VALUES (%s, %s)
     ON CONFLICT (username) DO NOTHING;
-    """, ('admin', 'admin123'))
+    """, ('nabiswa', 'admin123'))
 
     conn.commit()
     print("Tables created and default user added successfully.")
