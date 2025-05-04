@@ -2,15 +2,55 @@
 <html>
 <head>
     <title>Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h2 {
+            margin-bottom: 20px;
+        }
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-width: 300px;
+        }
+        .buttons button {
+            font-size: 18px;
+            padding: 12px;
+            background-color: #d41818;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .buttons button:hover {
+            background-color: #a51414;
+        }
+        @media(min-width: 600px) {
+            .buttons {
+                flex-direction: row;
+            }
+        }
+    </style>
 </head>
 <body>
+
     <h2>Welcome, {{ username }}</h2>
 
-    <button onclick="window.location.href='/sales'">Sales Form</button>
-    <button onclick="window.location.href='/refill'">Refill Gas Form</button>
-    <a href="{{ url_for('gas_form') }}">
-        <button>Add/View Gas</button>
-    </a>
-    
+    <div class="buttons">
+        <form action="/sales-form" method="get">
+            <button type="submit">Sales Form</button>
+        </form>
+        <form action="/refill-form" method="get">
+            <button type="submit">Refill Gas Form</button>
+        </form>
+        <form action="/gas-form" method="get">
+            <button type="submit">Add/View Gas</button>
+        </form>
+    </div>
+
 </body>
 </html>
