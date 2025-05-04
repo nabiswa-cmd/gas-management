@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Gas to Ukweli Store</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { display: flex; justify-content: space-between; }
+        form { width: 45%; }
+        .table-container { width: 50%; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 8px; border: 1px solid #ccc; }
+        th { background-color: #444; color: white; }
+        .nav-buttons { margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<h2>Add Kipsongo gas to Ukweli store</h2>
+
+<div class="container">
+    <form method="POST" action="{{ action_url }}">
+        <label for="gas_id">Gas Name:</label>
+            <select name="gas_id" required>
+                {% for gas in gases %}
+                <option value="{{ gas[0] }}">
+                    {{ gas[1] }}
+                </option>
+                {% endfor %}
+            </select>
+
+        <button type="submit">Add +1 Gas</button>
+
+        <div class="nav-buttons">
+            <button type="submit" name="nav" value="prev">← Previous</button>
+            <button type="submit" name="nav" value="next">Next →</button>
+        </div>
+    </form>
+
+    <div class="table-container">
+        <h3>Current kipsongo-gas Gas</h3>
+        <table>
+            <tr>
+                <th>Gas Name</th>
+                <th>Quantity</th>
+            </tr>
+            {% for item in source_gas %}
+            <tr>
+                <td>{{ item[1] }}</td>
+                <td>{{ item[2] }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<br>
+<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+
+</body>
+</html>

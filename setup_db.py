@@ -50,6 +50,24 @@ try:
     VALUES (%s, %s)
     ON CONFLICT (username) DO NOTHING;
     """, ('nabiswa', 'admin123'))
+    # SQL to create the 3 source tables
+create_tables_sql = """
+CREATE TABLE IF NOT EXISTS kipsongo_gas_in_ukweli (
+    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
+    number_of_gas INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS mama_pam_gas_in_ukweli (
+    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
+    number_of_gas INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS external_gas_in_ukweli (
+    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
+    number_of_gas INTEGER NOT NULL DEFAULT 0
+);
+"""
+
 
     conn.commit()
     print("Tables created and default user added successfully.")

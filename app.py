@@ -1,41 +1,37 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a strong, random key in production
+app.secret_key = 'your_secret_key'
 
 DATABASE_URL = "postgresql://ukwelitradersbase_user:KQTv3VjbP9E7lCo4wAmERxGrg7arHHlp@dpg-d0b0e82dbo4c73c9st5g-a.oregon-postgres.render.com/ukwelitradersbase"
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
+# --- AUTHENTICATION AND DASHBOARD ---
 
 @app.route("/")
 def home():
     return render_template('login.html')
 
-
 @app.route("/login", methods=["POST"])
 def login():
     username = request.form['username']
     password = request.form['password']
-
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
                 user = cur.fetchone()
-
         if user:
             session['username'] = username
             return redirect(url_for('dashboard'))
         else:
             return "Invalid credentials. <a href='/'>Try again</a>"
-
     except Exception as e:
         return f"Database error: {e}"
-
 
 @app.route("/dashboard")
 def dashboard():
@@ -44,6 +40,7 @@ def dashboard():
     else:
         return redirect(url_for('home'))
 
+# --- SALES ---
 
 @app.route("/sales", methods=["GET"])
 def sales():
@@ -51,21 +48,18 @@ def sales():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT s.sale_id,g.gas_name,s.amount_paid_cash,s.amount_paid_till,s.time_sold
+                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, s.time_sold
                     FROM sales_table s
                     JOIN gas_table g ON s.gas_id = g.gas_id
                     ORDER BY s.time_sold DESC
                     LIMIT 50;
                 """)
                 sales = cur.fetchall()
-
                 cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table;")
                 gases = cur.fetchall()
-
-        return render_template("sales.html",gases=gases,sales=sales)
+        return render_template("sales.html", gases=gases, sales=sales)
     except Exception as e:
         return f"Error loading sales form: {e}"
-
 
 @app.route("/submit-sale", methods=["POST"])
 def submit_sale():
@@ -73,28 +67,78 @@ def submit_sale():
         gas_id = request.form["gas_id"]
         amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
         amount_paid_till = float(request.form.get("amount_paid_till", 0))
-
         source_kipsongo_pioneer = 'source_kipsongo_pioneer' in request.form
         source_mama_pam = 'source_mama_pam' in request.form
         source_external = 'source_external' in request.form
         complete_power = 'complete_power' in request.form
         empty_not_given = 'empty_not_given' in request.form
         exchange_cylinder = 'exchange_cylinder' in request.form
-
         time_sold = datetime.now()
 
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO sales_table (
-                        gas_id,amount_paid_cash,amount_paid_till,
-                        source_kipsongo_pioneer,source_mama_pam,source_external,
-                        complete_power,empty_not_given,exchange_cylinder,time_sold
+                        gas_id, amount_paid_cash, amount_paid_till,
+                        source_kipsongo_pioneer, source_mama_pam, source_external,
+                        complete_power, empty_not_given, exchange_cylinder, time_sold
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    gas_id,amount_paid_cash,amount_paid_till,
-                    source_kipsongo_pioneer,source_mama_pam,source_external,
-                    complete_power,empty_not_given,exchange_cylinder,time_sold
+                    gas_id, amount_paid_cash, amount_paid_till,
+                    source_kipsongo_pioneer, source_mama_pam, source_external,
+                    complete_power, empty_not_given, exchange_cylinder, time_sold
+                ))
+                conn.commit()
+        return redirect("/sales")
+    except Exception as e:
+        return f"Error during sale submission: {e}"
+
+# --- GAS FORM ---
+
+@app.route("/submit-sale", methods=["POST"])
+def submit_sale():
+    try:
+        gas_id = int(request.form["gas_id"])
+        amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
+        amount_paid_till = float(request.form.get("amount_paid_till", 0))
+        source_kipsongo_pioneer = 'source_kipsongo_pioneer' in request.form
+        source_mama_pam = 'source_mama_pam' in request.form
+        source_external = 'source_external' in request.form
+        complete_power = 'complete_power' in request.form
+        empty_not_given = 'empty_not_given' in request.form
+        exchange_cylinder = 'exchange_cylinder' in request.form
+        time_sold = datetime.now()
+
+        # Determine update logic
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if not (source_kipsongo_pioneer or source_mama_pam or source_external):
+                    # No source selected: increase both filled and empty by 1
+                    cur.execute("""
+                        UPDATE gas_table
+                        SET filled_cylinders = filled_cylinders - 1,
+                            empty_cylinders = empty_cylinders + 1
+                        WHERE gas_id = %s
+                    """, (gas_id,))
+                else:
+                    # Any source selected: only increase empty by 1
+                    cur.execute("""
+                        UPDATE gas_table
+                        SET empty_cylinders = empty_cylinders + 1
+                        WHERE gas_id = %s
+                    """, (gas_id,))
+
+                # Insert the sale record
+                cur.execute("""
+                    INSERT INTO sales_table (
+                        gas_id, amount_paid_cash, amount_paid_till,
+                        source_kipsongo_pioneer, source_mama_pam, source_external,
+                        complete_power, empty_not_given, exchange_cylinder, time_sold
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    gas_id, amount_paid_cash, amount_paid_till,
+                    source_kipsongo_pioneer, source_mama_pam, source_external,
+                    complete_power, empty_not_given, exchange_cylinder, time_sold
                 ))
                 conn.commit()
 
@@ -102,35 +146,91 @@ def submit_sale():
     except Exception as e:
         return f"Error during sale submission: {e}"
 
+# --- GAS SOURCE HANDLER ---
 
-@app.route("/gas-form", methods=["GET", "POST"])
-def gas_form():
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                if request.method == "POST":
-                    gas_name = request.form["gas_name"]
-                    empty = int(request.form["empty_cylinders"])
-                    filled = int(request.form["filled_cylinders"])
+def handle_gas_source(source_name, session_key, table_name, template_name):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT gas_id, gas_name FROM gas_table ORDER BY gas_id")
+    gases = cur.fetchall()
 
-                    cur.execute("""
-                        INSERT INTO gas_table (gas_name, empty_cylinders, filled_cylinders)
-                        VALUES (%s, %s, %s);
-                    """, (gas_name, empty, filled))
-                    conn.commit()
+    if session_key not in session:
+        session[session_key] = 0
 
-                cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table")
-                gases = cur.fetchall()
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'next':
+            session[session_key] = (session[session_key] + 1) % len(gases)
+        elif action == 'prev':
+            session[session_key] = (session[session_key] - 1) % len(gases)
+        elif action == 'add':
+            gas_id = gases[session[session_key]][0]
+            cur.execute(f"""
+                INSERT INTO {table_name} (gas_id, number_of_gas)
+                VALUES (%s, 1)
+                ON CONFLICT (gas_id) DO UPDATE
+                SET number_of_gas = {table_name}.number_of_gas + 1
+            """, (gas_id,))
+            conn.commit()
+            flash(f"Gas added to {source_name} successfully.")
 
-        return render_template("gas_form.html", gases=gases)
-    except Exception as e:
-        return f"Error with gas form: {e}"
+    cur.execute(f"""
+        SELECT t.id, g.gas_name, t.number_of_gas
+        FROM {table_name} t
+        JOIN gas_table g ON t.gas_id = g.gas_id
+    """)
+    source_gas = cur.fetchall()
 
+    cur.close()
+    conn.close()
+
+    current_gas = gases[session[session_key]]
+    return render_template(template_name, gases=gases, current_gas=current_gas, source_gas=source_gas)
+
+# --- SOURCE ROUTES ---
+
+@app.route('/add-kipsongo-gas', methods=['GET', 'POST'])
+def add_kipsongo_gas():
+    return handle_gas_source("Kipsongo", "kipsongo_index", "kipsongo_gas_in_ukweli", "add_kipsongo_gas.html")
+
+@app.route('/add-mama-pam-gas', methods=['GET', 'POST'])
+def add_mama_pam_gas():
+    return handle_gas_source("Mama Pam", "mama_index", "mama_pam_gas_in_ukweli", "add_mama_pam_gas.html")
+
+@app.route('/add-external-gas', methods=['GET', 'POST'])
+def add_external_gas():
+    return handle_gas_source("External", "external_index", "external_gas_in_ukweli", "add_external_gas.html")
+
+# --- DELETE SOURCE ENTRY ---
+
+@app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
+def delete_kipsongo_gas(id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM kipsongo_gas_in_ukweli WHERE id = %s", (id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('add_kipsongo_gas'))
+
+# --- EXTRA PAGES / PLACEHOLDERS ---
 
 @app.route("/refill")
 def refill():
-    return render_template('refill.html')  # Ensure refill.html exists
+    return render_template('refill.html')
 
+@app.route("/external-u")
+def external_u():
+    return render_template('external-u.html')
+
+@app.route("/kipsongo-gas")
+def kipsongo_gas():
+    return render_template('kipsongo-gas.html')
+
+@app.route("/mpam-gas-u")
+def mpam_gas_u():
+    return render_template('mpam-gas-u.html')
+
+# --- DEBUG ---
 
 @app.route("/debug-gases")
 def debug_gases():
@@ -143,6 +243,7 @@ def debug_gases():
     except Exception as e:
         return f"Error fetching gas table: {e}"
 
+# --- MAIN ENTRY POINT ---
 
 if __name__ == '__main__':
     app.run(debug=True)
