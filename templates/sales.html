@@ -27,7 +27,7 @@
         <select name="gas_id" required>
             {% for gas in gases %}
             <option value="{{ gas[0] }}">
-                {{ gas[1] }} (Empty: {{ gas[2] }}, Filled: {{ gas[3] }}, Total: {{ gas[2] + gas[3] }})
+                {{ gas[1] }} (Empty:{{ gas[2] }}, Filled:{{ gas[3] }})
             </option>
             {% endfor %}
         </select>
