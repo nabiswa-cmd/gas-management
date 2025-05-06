@@ -40,7 +40,7 @@ def dashboard():
     else:
         return redirect(url_for('home'))
 
-# --- SALES ---
+# --- SALES PAGE AND SUBMISSION ---
 
 @app.route("/sales", methods=["GET"])
 def sales():
@@ -61,41 +61,7 @@ def sales():
     except Exception as e:
         return f"Error loading sales form: {e}"
 
-@app.route("/submit-sale", methods=["POST"])
-def submit_sale():
-    try:
-        gas_id = request.form["gas_id"]
-        amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
-        amount_paid_till = float(request.form.get("amount_paid_till", 0))
-        source_kipsongo_pioneer = 'source_kipsongo_pioneer' in request.form
-        source_mama_pam = 'source_mama_pam' in request.form
-        source_external = 'source_external' in request.form
-        complete_power = 'complete_power' in request.form
-        empty_not_given = 'empty_not_given' in request.form
-        exchange_cylinder = 'exchange_cylinder' in request.form
-        time_sold = datetime.now()
-
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO sales_table (
-                        gas_id, amount_paid_cash, amount_paid_till,
-                        source_kipsongo_pioneer, source_mama_pam, source_external,
-                        complete_power, empty_not_given, exchange_cylinder, time_sold
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    gas_id, amount_paid_cash, amount_paid_till,
-                    source_kipsongo_pioneer, source_mama_pam, source_external,
-                    complete_power, empty_not_given, exchange_cylinder, time_sold
-                ))
-                conn.commit()
-        return redirect("/sales")
-    except Exception as e:
-        return f"Error during sale submission: {e}"
-
-# --- GAS FORM ---
-
-@app.route("/submit-sale", methods=["POST"])
+@app.route('/submit-sale', methods=['POST'])
 def submit_sale():
     try:
         gas_id = int(request.form["gas_id"])
@@ -109,26 +75,60 @@ def submit_sale():
         exchange_cylinder = 'exchange_cylinder' in request.form
         time_sold = datetime.now()
 
-        # Determine update logic
         with get_connection() as conn:
             with conn.cursor() as cur:
-                if not (source_kipsongo_pioneer or source_mama_pam or source_external):
-                    # No source selected: increase both filled and empty by 1
-                    cur.execute("""
-                        UPDATE gas_table
-                        SET filled_cylinders = filled_cylinders - 1,
-                            empty_cylinders = empty_cylinders + 1
-                        WHERE gas_id = %s
-                    """, (gas_id,))
+                # Get current stock
+                cur.execute("SELECT filled_cylinders, empty_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
+                row = cur.fetchone()
+
+                if not row:
+                    flash("Gas record not found.", "error")
+                    return redirect("/sales")
+
+                filled, empty = row
+                source_selected = source_kipsongo_pioneer or source_mama_pam or source_external
+
+                if not source_selected:
+                    if filled > 0:
+                        # Normal sale: -1 filled, +1 empty
+                        cur.execute("""
+                            UPDATE gas_table
+                            SET filled_cylinders = filled_cylinders - 1,
+                                empty_cylinders = empty_cylinders + 1
+                            WHERE gas_id = %s
+                        """, (gas_id,))
+                    else:
+                        flash("No filled gas cylinder available.", "error")
+                        return redirect("/sales")
                 else:
-                    # Any source selected: only increase empty by 1
+                    # Source selected: only increase empty
                     cur.execute("""
                         UPDATE gas_table
                         SET empty_cylinders = empty_cylinders + 1
                         WHERE gas_id = %s
                     """, (gas_id,))
 
-                # Insert the sale record
+                    # Update correct source table
+                    if source_mama_pam:
+                        cur.execute("""
+                            UPDATE mama_pam_gas_in_ukweli
+                            SET number_of_gas = number_of_gas + 1
+                            WHERE gas_id = %s
+                        """, (gas_id,))
+                    elif source_kipsongo_pioneer:
+                        cur.execute("""
+                            UPDATE kipsongo_gas_in_ukweli
+                            SET number_of_gas = number_of_gas + 1
+                            WHERE gas_id = %s
+                        """, (gas_id,))
+                    elif source_external:
+                        cur.execute("""
+                            UPDATE external_gas_in_ukweli
+                            SET number_of_gas = number_of_gas + 1
+                            WHERE gas_id = %s
+                        """, (gas_id,))
+
+                # Insert sale record
                 cur.execute("""
                     INSERT INTO sales_table (
                         gas_id, amount_paid_cash, amount_paid_till,
@@ -142,9 +142,11 @@ def submit_sale():
                 ))
                 conn.commit()
 
+        flash("Sale recorded successfully.", "success")
         return redirect("/sales")
     except Exception as e:
-        return f"Error during sale submission: {e}"
+        flash(f"Error processing sale: {e}", "error")
+        return redirect("/sales")
 
 # --- GAS SOURCE HANDLER ---
 
@@ -201,8 +203,6 @@ def add_mama_pam_gas():
 def add_external_gas():
     return handle_gas_source("External", "external_index", "external_gas_in_ukweli", "add_external_gas.html")
 
-# --- DELETE SOURCE ENTRY ---
-
 @app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
 def delete_kipsongo_gas(id):
     conn = get_connection()
@@ -212,7 +212,7 @@ def delete_kipsongo_gas(id):
     conn.close()
     return redirect(url_for('add_kipsongo_gas'))
 
-# --- EXTRA PAGES / PLACEHOLDERS ---
+# --- EXTRA PAGES ---
 
 @app.route("/refill")
 def refill():
@@ -230,8 +230,6 @@ def kipsongo_gas():
 def mpam_gas_u():
     return render_template('mpam-gas-u.html')
 
-# --- DEBUG ---
-
 @app.route("/debug-gases")
 def debug_gases():
     try:
@@ -243,7 +241,7 @@ def debug_gases():
     except Exception as e:
         return f"Error fetching gas table: {e}"
 
-# --- MAIN ENTRY POINT ---
+# --- MAIN APP ---
 
 if __name__ == '__main__':
     app.run(debug=True)

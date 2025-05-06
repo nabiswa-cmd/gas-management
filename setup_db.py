@@ -6,7 +6,7 @@ try:
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
-    # Create gas_table
+    # --- Create gas_table ---
     cur.execute("""
     CREATE TABLE IF NOT EXISTS gas_table (
         gas_id SERIAL PRIMARY KEY,
@@ -16,7 +16,7 @@ try:
     );
     """)
 
-    # Create sales_table
+    # --- Create sales_table ---
     cur.execute("""
     CREATE TABLE IF NOT EXISTS sales_table (
         sale_id SERIAL PRIMARY KEY,
@@ -31,11 +31,10 @@ try:
         complete_power BOOLEAN DEFAULT FALSE,
         empty_not_given BOOLEAN DEFAULT FALSE,
         exchange_cylinder BOOLEAN DEFAULT FALSE
- 
     );
     """)
 
-    # Create users table
+    # --- Create users table ---
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id SERIAL PRIMARY KEY,
@@ -44,37 +43,44 @@ try:
     );
     """)
 
-    # Insert default admin user if not exists
+    # --- Insert default user ---
     cur.execute("""
     INSERT INTO users (username, password)
     VALUES (%s, %s)
     ON CONFLICT (username) DO NOTHING;
     """, ('nabiswa', 'admin123'))
-    # SQL to create the 3 source tables
-create_tables_sql = """
-CREATE TABLE IF NOT EXISTS kipsongo_gas_in_ukweli (
-    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
-    number_of_gas INTEGER NOT NULL DEFAULT 0
-);
 
-CREATE TABLE IF NOT EXISTS mama_pam_gas_in_ukweli (
-    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
-    number_of_gas INTEGER NOT NULL DEFAULT 0
-);
+    # --- Create source-specific gas tables ---
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS kipsongo_gas_in_ukweli (
+        id SERIAL PRIMARY KEY,
+        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        number_of_gas INTEGER NOT NULL DEFAULT 0
+    );
+    """)
 
-CREATE TABLE IF NOT EXISTS external_gas_in_ukweli (
-    gas_id INTEGER REFERENCES gases(id) ON DELETE CASCADE,
-    number_of_gas INTEGER NOT NULL DEFAULT 0
-);
-"""
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS mama_pam_gas_in_ukweli (
+        id SERIAL PRIMARY KEY,
+        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        number_of_gas INTEGER NOT NULL DEFAULT 0
+    );
+    """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS external_gas_in_ukweli (
+        id SERIAL PRIMARY KEY,
+        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        number_of_gas INTEGER NOT NULL DEFAULT 0
+    );
+    """)
 
     conn.commit()
-    print("Tables created and default user added successfully.")
+    print("✅ Tables created and default user added successfully.")
 
 except Exception as e:
-    print("Error creating tables:", e)
+    print("❌ Error creating tables:", e)
 
 finally:
-    if conn:
+    if 'conn' in locals():
         conn.close()
