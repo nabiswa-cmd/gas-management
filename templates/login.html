@@ -1,83 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Login</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Login - Ukweli Gas System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f2f2f2;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-
-        .login-container {
-            background-color: #fff;
-            padding: 30px 40px;
-            border-radius: 10px;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-            width: 300px;
-            text-align: center;
-        }
-
-        h2 {
-            margin-bottom: 20px;
-            color: #333;
-        }
-
-        label {
-            display: block;
-            margin: 8px 0 5px;
-            color: #555;
-        }
-
-        input[type="text"], input[type="password"] {
-            width: 100%;
-            padding: 10px;
-            margin: 8px 0;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            box-sizing: border-box;
-        }
-
-        input[type="submit"] {
-            width: 100%;
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
-        }
-
-        input[type="submit"]:hover {
-            background-color: #45a049;
-        }
-
-        .footer-text {
-            margin-top: 15px;
-            font-size: 14px;
-            color: #777;
-        }
+        
     </style>
 </head>
 <body>
+    <div class="background"></div>
     <div class="login-container">
-        <h2>UKWELI GAS SYSYEM</h2>
+        <h2>UKWELI GAS SYSTEM</h2>
         <form method="POST" action="/login">
-            <label>Username:</label>
-            <input type="text" name="username" required>
-
-            <label>Password:</label>
-            <input type="password" name="password" required>
-
-            <input type="submit" value="Login">
+            <div class="input-group">
+                <input type="text" name="username" placeholder="Username" required>
+            </div>
+            <div class="input-group">
+                <input type="password" name="password" placeholder="Password" required>
+            </div>
+            <input type="submit" value="Login" class="btn">
+            <div class="footer-text">Welcome to Ukweli Gas System! Please log in.</div>
         </form>
-        <div class="footer-text">Welcome to ukweli gas system! Please log in.</div>
     </div>
 </body>
 </html>
