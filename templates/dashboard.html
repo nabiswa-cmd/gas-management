@@ -15,14 +15,21 @@
             justify-content: center;
             min-height: 100vh;
         }
+        
+        
 
         h2 {
             margin-bottom: 20px;
             font-weight: 600;
             color: #333;
             text-align: center;
+        } 
+        button{
+            background-color: transparent;
+            border-color: transparent;
+            border-width: 0cm;
         }
-
+           
         .buttons {
             display: grid;
             grid-template-columns: 1fr;
@@ -49,9 +56,12 @@
         }
 
         .buttons form:hover,
-        .buttons a:hover {
-            background-color: #357ABD;
+        .buttons a:hover ,button :hover{
+            background-color: hsl(210, 89%, 22%);
             transform: translateY(-2px);
+            background-color: hsl(210, 89%, 22%);
+            border-color:hsl(210, 89%, 22%);
+            border-width: 0cm;
         }
 
         .buttons form:active,

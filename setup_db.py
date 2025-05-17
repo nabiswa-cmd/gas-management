@@ -48,35 +48,32 @@ try:
     INSERT INTO users (username, password)
     VALUES (%s, %s)
     ON CONFLICT (username) DO NOTHING;
-    """, ('nabiswa', 'admin123'))
+    """, ('admin', 'admin123'))
 
-    # --- Create source-specific gas tables ---
+     # --- Create source-specific gas tables ---
     cur.execute("""
     CREATE TABLE IF NOT EXISTS kipsongo_gas_in_ukweli (
-        id SERIAL PRIMARY KEY,
-        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        gas_id INTEGER PRIMARY KEY REFERENCES gas_table(gas_id) ON DELETE CASCADE,
         number_of_gas INTEGER NOT NULL DEFAULT 0
     );
     """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS mama_pam_gas_in_ukweli (
-        id SERIAL PRIMARY KEY,
-        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        gas_id INTEGER PRIMARY KEY REFERENCES gas_table(gas_id) ON DELETE CASCADE,
         number_of_gas INTEGER NOT NULL DEFAULT 0
     );
     """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS external_gas_in_ukweli (
-        id SERIAL PRIMARY KEY,
-        gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        gas_id INTEGER PRIMARY KEY REFERENCES gas_table(gas_id) ON DELETE CASCADE,
         number_of_gas INTEGER NOT NULL DEFAULT 0
     );
     """)
 
     conn.commit()
-    print("✅ Tables created and default user added successfully.")
+    print("✅ Tables created successfully.")
 
 except Exception as e:
     print("❌ Error creating tables:", e)

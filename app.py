@@ -160,26 +160,33 @@ def handle_gas_source(source_name, session_key, table_name, template_name):
     conn = get_connection()
     cur = conn.cursor()
 
-    # Get list of gases from gas_table
-    cur.execute("SELECT gas_id, gas_name FROM gas_table ORDER BY gas_id")
-    gases = cur.fetchall()
+    # Fetch source-specific gas data to navigate through
+    cur.execute(f"""
+        SELECT t.gas_id, g.gas_name, t.number_of_gas
+        FROM {table_name} t
+        JOIN gas_table g ON t.gas_id = g.gas_id
+        ORDER BY t.gas_id
+    """)
+    source_gas = cur.fetchall()
 
     # Debugging Output
-    print(f"[DEBUG] Gases fetched: {gases}")
+    print(f"[DEBUG] Source Gas Data: {source_gas}")
 
-    # Check if gases are empty
-    if not gases:
-        print("[DEBUG] No gases found in gas_table.")
+    # Check if source_gas is empty
+    if not source_gas:
+        print("[DEBUG] No gases found in source table.")
+        current_gas = (None, "No Gas Available", 0)
+    else:
+        # Set index if not already set in session
+        if session_key not in session:
+            session[session_key] = 0
 
-    # Set index if not already set in session
-    if session_key not in session:
-        session[session_key] = 0
-
-    current_index = session[session_key]
-    current_gas = gases[current_index] if gases else (None, "No Gas Available")
+        current_index = session[session_key]
+        current_gas = source_gas[current_index]
 
     if request.method == 'POST':
         action = request.form.get('action')
+        nav = request.form.get('nav')
         quantity = request.form.get('quantity')
 
         # Ensure quantity is a positive integer
@@ -188,18 +195,34 @@ def handle_gas_source(source_name, session_key, table_name, template_name):
         except ValueError:
             quantity = 1
 
-        print(f"[DEBUG] Action received: {action}, Quantity: {quantity}")
+        print(f"[DEBUG] Action received: {action}, Nav: {nav}, Quantity: {quantity}")
 
-        # Navigation logic
-        if action == 'next':
-            session[session_key] = (current_index + 1) % len(gases) if gases else 0
-        elif action == 'prev':
-            session[session_key] = (current_index - 1) % len(gases) if gases else 0
+        # Navigation logic based on source table records
+        if nav == 'next':
+            session[session_key] = (current_index + 1) % len(source_gas) if source_gas else 0
+        elif nav == 'prev':
+            session[session_key] = (current_index - 1) % len(source_gas) if source_gas else 0
 
-        # Add logic
+        # Add +1 logic - Only increase quantity by 1 for the selected gas
+        elif action == 'add_1':
+            gas_id = current_gas[0] if current_gas[0] else None
+
+            if gas_id:
+                try:
+                    cur.execute(f"""
+                        UPDATE {table_name}
+                        SET number_of_gas = number_of_gas + 1
+                        WHERE gas_id = %s
+                    """, (gas_id,))
+                    conn.commit()  # Commit the update
+                    flash(f"1 unit added to {source_name} successfully.")
+                except Exception as e:
+                    flash(f"Error adding gas to {source_name}: {e}")
+                    print(f"[DEBUG] Error adding gas: {e}")
+
+        # Add logic - Insert or update the source table
         elif action == 'add':
-            gas_id = current_gas[0]
-            print(f"[DEBUG] Adding {quantity} units of gas ID: {gas_id} to {table_name}")
+            gas_id = request.form.get('gas_id')
 
             if gas_id:
                 try:
@@ -209,31 +232,31 @@ def handle_gas_source(source_name, session_key, table_name, template_name):
                         ON CONFLICT (gas_id) DO UPDATE
                         SET number_of_gas = {table_name}.number_of_gas + %s
                     """, (gas_id, quantity, quantity))
-                    conn.commit()
+                    conn.commit()  # Commit the insert/update
                     flash(f"{quantity} units added to {source_name} successfully.")
                 except Exception as e:
                     flash(f"Error adding gas to {source_name}: {e}")
                     print(f"[DEBUG] Error adding gas: {e}")
-            else:
-                print("[DEBUG] No valid gas selected for adding.")
 
-    # Fetch the source-specific gas data to display in the table
-    cur.execute(f"""
-        SELECT t.id, g.gas_name, t.number_of_gas
-        FROM {table_name} t
-        JOIN gas_table g ON t.gas_id = g.gas_id
-    """)
-    source_gas = cur.fetchall()
-    print(f"[DEBUG] Source Gas Data: {source_gas}")
+        # Fetch the updated source-specific gas data (after commit)
+        cur.execute(f"""
+            SELECT t.gas_id, g.gas_name, t.number_of_gas
+            FROM {table_name} t
+            JOIN gas_table g ON t.gas_id = g.gas_id
+            ORDER BY t.gas_id
+        """)
+        source_gas = cur.fetchall()
+
+        # Debugging Output for updated data
+        print(f"[DEBUG] Updated Source Gas Data: {source_gas}")
 
     cur.close()
     conn.close()
 
-    # Render the template with required data
+    # Render the template with updated data
     return render_template(template_name, 
-                           gases=gases, 
-                           current_gas=current_gas, 
-                           source_gas=source_gas)
+                           source_gas=source_gas, 
+                           current_gas=current_gas)
 
 # --- ROUTES ---
 @app.route('/external-u', methods=['GET', 'POST'])
@@ -256,12 +279,47 @@ def mpam_gas_u():
 
 @app.route('/kipsongo-gas-u', methods=['GET', 'POST'])
 def kipsongo_gas_u():
-    return handle_gas_source(
-        source_name="Kipsongo Gas",
-        session_key="kipsongo_index",
-        table_name="kipsongo_gas_in_ukweli",
-        template_name="kipsongo-gas-u.html"
-    )
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Fetch gases for dropdown
+    cur.execute("SELECT gas_id, gas_name FROM gas_table;")
+    gases = cur.fetchall()
+
+    # Fetch source-specific gas data to navigate through
+    cur.execute("""
+        SELECT g.gas_id, g.gas_name, k.number_of_gas 
+        FROM kipsongo_gas_in_ukweli k
+        LEFT JOIN gas_table g ON k.gas_id = g.gas_id
+        ORDER BY g.gas_id
+    """)
+    source_gas = cur.fetchall()
+
+    # Debugging Output
+    print(f"[DEBUG] Gases fetched: {gases}")
+    print(f"[DEBUG] Source Gas Data: {source_gas}")
+
+    # Check if source_gas is empty
+    if not source_gas:
+        print("[DEBUG] No gases found in source table.")
+        current_gas = (None, "No Gas Available", 0)
+    else:
+        # Set index if not already set in session
+        if "kipsongo_index" not in session:
+            session["kipsongo_index"] = 0
+
+        current_index = session["kipsongo_index"]
+        current_gas = source_gas[current_index]
+
+    cur.close()
+    conn.close()
+
+    # Render the template with required data
+    return render_template("kipsongo-gas-u.html", 
+                           gases=gases, 
+                           source_gas=source_gas, 
+                           current_gas=current_gas)
+
 
 @app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
 def delete_kipsongo_gas(id):
