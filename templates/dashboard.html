@@ -1,37 +1,88 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard - Ukweli Gas System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
             padding: 20px;
-        }
-        h2 {
-            margin-bottom: 20px;
-        }
-        .buttons {
             display: flex;
             flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+            font-weight: 600;
+            color: #333;
+            text-align: center;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr;
             gap: 15px;
-            max-width: 300px;
+            width: 100%;
+            max-width: 400px;
         }
-        .buttons button {
-            font-size: 18px;
+
+        .buttons form,
+        .buttons a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 12px;
-            background-color: #d41818;
-            color: white;
+            background-color: #42A5F5;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
         }
-        .buttons button:hover {
-            background-color: #a51414;
+
+        .buttons form:hover,
+        .buttons a:hover {
+            background-color: #357ABD;
+            transform: translateY(-2px);
         }
-        @media(min-width: 600px) {
+
+        .buttons form:active,
+        .buttons a:active {
+            transform: translateY(0);
+        }
+
+        .buttons .link-btn {
+            display: inline-block;
+            padding: 12px;
+            background-color: #FF6B6B;
+            text-align: center;
+            font-size: 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        .buttons .link-btn:hover {
+            background-color: #D9534F;
+        }
+
+        @media (min-width: 600px) {
             .buttons {
-                flex-direction: row;
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (min-width: 768px) {
+            .buttons {
+                grid-template-columns: repeat(3, 1fr);
             }
         }
     </style>
@@ -49,12 +100,11 @@
         </form>
         <form action="/gas-form" method="get">
             <button type="submit">Add/View Gas</button>
-
-            <a href="/external-u">exte</a>
-            <a href="/kipsongo-gas-u">kip</a>
-            <a href="/mpam-gas-u">mpam</a>
-
         </form>
+
+        <a href="/external-u" class="link-btn">External</a>
+        <a href="/kipsongo-gas-u" class="link-btn">Kipsongo</a>
+        <a href="/mpam-gas-u" class="link-btn">Mama Pam</a>
     </div>
 
 </body>
