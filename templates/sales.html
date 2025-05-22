@@ -6,53 +6,136 @@
     <style>
         body {
             font-family: Arial, sans-serif;
+            padding: 15px;
+            margin: 0;
+            background-color: #f9f9f9;
         }
+
+        h2 {
+            color: #d41818;
+            text-align: center;
+        }
+
         .container {
             display: flex;
             flex-direction: column;
+            gap: 20px;
         }
-        @media(min-width: 768px) {
-            .container {
-                flex-direction: row;
-                justify-content: space-between;
-                align-items: flex-start;
-            }
-        }
+
         form {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+
+        select, input[type="number"] {
             width: 100%;
-        }
-        @media(min-width: 768px) {
-            form {
-                width: 45%;
-            }
-        }
-        table {
-            border: 1px solid #ccc;
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th, td {
-            border: 1px solid #ccc;
             padding: 8px;
+            margin-top: 5px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 5px;
         }
+
+        fieldset {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 15px;
+            border-radius: 5px;
+        }
+
+        fieldset legend {
+            font-weight: bold;
+        }
+
+        button {
+            background-color: #d41818;
+            color: white;
+            padding: 10px;
+            margin-top: 15px;
+            width: 100%;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #a81212;
+        }
+
+        .table-container {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .date-heading {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #333;
+            background-color: #eee;
+            padding: 8px;
+            border-left: 4px solid #d41818;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: left;
+            font-size: 14px;
+        }
+
         th {
             background-color: #d41818;
             color: white;
         }
-        fieldset {
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-bottom: 15px;
+
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
         }
-        .table-container {
-            width: 100%;
+
+        .total-row {
+            font-weight: bold;
+            background-color: #f9f9f9;
+        }
+
+        .dashboard-link {
+            display: block;
             margin-top: 20px;
+            text-align: center;
+            text-decoration: none;
+            background-color: #d41818;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
         }
+
+        .dashboard-link:hover {
+            background-color: #a81212;
+        }
+
         @media(min-width: 768px) {
-            .table-container {
-                width: 50%;
-                margin-left: 20px;
-                margin-top: 0;
+            .container {
+                flex-direction: row;
+                align-items: flex-start;
+                justify-content: space-between;
+            }
+
+            form, .table-container {
+                width: 48%;
             }
         }
     </style>
@@ -71,13 +154,12 @@
                 </option>
                 {% endfor %}
             </select>
-            <br><br>
 
             <label for="amount_paid_cash">Amount Paid (Cash):</label>
-            <input type="number" name="amount_paid_cash" step="0.01" required><br><br>
+            <input type="number" name="amount_paid_cash" step="0.01" required>
 
             <label for="amount_paid_till">Amount Paid (Till):</label>
-            <input type="number" name="amount_paid_till" step="0.01" required><br><br>
+            <input type="number" name="amount_paid_till" step="0.01" required>
 
             <fieldset>
                 <legend>Source</legend>
@@ -98,31 +180,36 @@
 
         <div class="table-container">
             <h2>Recent Sales</h2>
-            <table>
-                <tr>
-                    <th>Sale ID</th>
-                    <th>Gas</th>
-                    <th>Cash</th>
-                    <th>Till</th>
-                    <th>Total</th>
-                    <th>Time Sold</th> 
-                </tr>
-                {% for sale in sales %}
-                <tr>
-                    <td>{{ sale[0] }}</td>
-                    <td>{{ sale[1] }}</td>
-                    <td>KSH {{ "%.2f"|format(sale[2]) }}</td>
-                    <td>KSH {{ "%.2f"|format(sale[3]) }}</td>
-                    <td>KSH {{ "%.2f"|format(sale[2] + sale[3]) }}</td>
-                    <td>{{ sale[4] }}</td>
-                </tr>
-                {% endfor %}
-            </table>
+            {% for group in grouped_sales %}
+                <div class="date-heading">{{ group.date }}</div>
+                <table>
+                    <tr>
+                        <th>Sale ID</th>
+                        <th>Gas</th>
+                        <th>Cash</th>
+                        <th>Till</th>
+                        <th>Total</th>
+                        <th>Time Sold</th> 
+                    </tr>
+                    {% for sale in group.sales %}
+                    <tr>
+                        <td>{{ sale.id }}</td>
+                        <td>{{ sale.gas }}</td>
+                        <td>KSH {{ "%.2f"|format(sale.cash) }}</td>
+                        <td>KSH {{ "%.2f"|format(sale.till) }}</td>
+                        <td>KSH {{ "%.2f"|format(sale.cash + sale.till) }}</td>
+                        <td>{{ sale.time }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="total-row">
+                        <td colspan="6">Total Gas Sold: {{ group.total_gas }}</td>
+                    </tr>
+                </table>
+            {% endfor %}
         </div>
     </div>
 
-    <br>
-    <a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+    <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
 
 </body>
 </html>
