@@ -354,6 +354,11 @@ def kipsongo_gas_u():
                            current_gas=current_gas)
 
 
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
 def delete_kipsongo_gas(id):
     conn = get_connection()

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Dashboard - Ukweli Gas System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
@@ -15,37 +16,28 @@
             justify-content: center;
             min-height: 100vh;
         }
-        
-        
 
         h2 {
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             font-weight: 600;
             color: #333;
             text-align: center;
-        } 
-        button{
-            background-color: transparent;
-            border-color: transparent;
-            border-width: 0cm;
-        }
-           
-        .buttons {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 15px;
-            width: 100%;
-            max-width: 400px;
         }
 
-        .buttons form,
-        .buttons a {
+        .buttons {
+            display: grid;
+            gap: 15px;
+            width: 100%;
+            max-width: 500px;
+            grid-template-columns: 1fr;
+            margin-bottom: 30px;
+        }
+
+        form button, .link-btn {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px;
-            background-color: #42A5F5;
-            color: #fff;
+            padding: 14px;
             font-size: 16px;
             font-weight: 600;
             text-decoration: none;
@@ -55,30 +47,42 @@
             transition: background-color 0.3s, transform 0.3s;
         }
 
-        .buttons form:hover,
-        .buttons a:hover ,button :hover{
-            background-color: hsl(210, 89%, 22%);
-            transform: translateY(-2px);
-            background-color: hsl(210, 89%, 22%);
-            border-color:hsl(210, 89%, 22%);
-            border-width: 0cm;
+        form button {
+            background-color: #42A5F5;
+            color: white;
         }
 
-        
+        form button:hover {
+            background-color: #1E88E5;
+            transform: translateY(-2px);
+        }
 
-        .buttons .link-btn {
-            display: inline-block;
-            padding: 12px;
+        .link-btn {
             background-color: #FF6B6B;
+            color: white;
             text-align: center;
-            font-size: 14px;
+        }
+
+        .link-btn:hover {
+            background-color: #D9534F;
+            transform: translateY(-2px);
+        }
+
+        .logout-btn {
+            background-color: #6c757d;
+            color: white;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
             border-radius: 8px;
             cursor: pointer;
             transition: background-color 0.3s, transform 0.3s;
         }
 
-        .buttons .link-btn:hover {
-            background-color: #D9534F;
+        .logout-btn:hover {
+            background-color: #495057;
+            transform: translateY(-2px);
         }
 
         @media (min-width: 600px) {
@@ -113,6 +117,10 @@
         <a href="/kipsongo-gas-u" class="link-btn">Kipsongo</a>
         <a href="/mpam-gas-u" class="link-btn">Mama Pam</a>
     </div>
+
+    <form action="/logout" method="post">
+        <button type="submit" class="logout-btn">Logout</button>
+    </form>
 
 </body>
 </html>
