@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
 from datetime import datetime
+from collections import defaultdict
+from datetime import datetime
+
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -42,21 +45,51 @@ def dashboard():
 
 # --- SALES PAGE AND SUBMISSION ---
 
+
 @app.route("/sales", methods=["GET"])
 def sales():
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # Fetch all recent sales (limit to latest 50 by time)
                 cur.execute("""
-                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, s.time_sold
+                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, s.time_sold::timestamp::date as sale_date, s.time_sold::time
                     FROM sales_table s
                     JOIN gas_table g ON s.gas_id = g.gas_id
                     ORDER BY s.time_sold DESC LIMIT 50;
                 """)
-                sales = cur.fetchall()
+                rows = cur.fetchall()
+
+                # Organize sales grouped by date
+                grouped_sales_dict = defaultdict(list)
+                for sale in rows:
+                    sale_id, gas_name, cash, till, sale_date, time_only = sale
+                    grouped_sales_dict[sale_date].append({
+                        "id": sale_id,
+                        "gas": gas_name,
+                        "cash": float(cash),
+                        "till": float(till),
+                        "time": time_only.strftime("%I:%M %p")
+                    })
+
+                # Build final grouped structure for template
+                grouped_sales = []
+                for date, sales_list in grouped_sales_dict.items():
+                    grouped_sales.append({
+                        "date": date.strftime("%A, %d %B %Y"),
+                        "sales": sales_list,
+                        "total_gas": len(sales_list)
+                    })
+
+                # Sort by newest date first
+                grouped_sales.sort(key=lambda x: x["date"], reverse=True)
+
+                # Load gas list for the dropdown
                 cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table;")
                 gases = cur.fetchall()
-        return render_template("sales.html", gases=gases, sales=sales)
+
+        return render_template("sales.html", gases=gases, grouped_sales=grouped_sales)
+
     except Exception as e:
         return f"Error loading sales form: {e}"
 @app.route('/submit-sale', methods=['POST'])
