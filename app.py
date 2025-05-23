@@ -46,21 +46,23 @@ def dashboard():
 # --- SALES PAGE AND SUBMISSION ---
 
 
+from collections import defaultdict
+
 @app.route("/sales", methods=["GET"])
 def sales():
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Fetch all recent sales (limit to latest 50 by time)
+                # Fetch all recent sales (latest 50)
                 cur.execute("""
-                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, s.time_sold::timestamp::date as sale_date, s.time_sold::time
+                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, 
+                           s.time_sold::date AS sale_date, s.time_sold::time
                     FROM sales_table s
                     JOIN gas_table g ON s.gas_id = g.gas_id
                     ORDER BY s.time_sold DESC LIMIT 50;
                 """)
                 rows = cur.fetchall()
 
-                # Organize sales grouped by date
                 grouped_sales_dict = defaultdict(list)
                 for sale in rows:
                     sale_id, gas_name, cash, till, sale_date, time_only = sale
@@ -72,19 +74,20 @@ def sales():
                         "time": time_only.strftime("%I:%M %p")
                     })
 
-                # Build final grouped structure for template
+                # Build final grouped structure
                 grouped_sales = []
-                for date, sales_list in grouped_sales_dict.items():
+                for raw_date, sales_list in grouped_sales_dict.items():
                     grouped_sales.append({
-                        "date": date.strftime("%A, %d %B %Y"),
+                        "date": raw_date,  # raw date for sorting
+                        "date_str": raw_date.strftime("%A, %d %B %Y"),  # formatted string for display
                         "sales": sales_list,
                         "total_gas": len(sales_list)
                     })
 
-                # Sort by newest date first
+                # Sort by newest date (descending)
                 grouped_sales.sort(key=lambda x: x["date"], reverse=True)
 
-                # Load gas list for the dropdown
+                # Load gas list
                 cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table;")
                 gases = cur.fetchall()
 
@@ -92,6 +95,44 @@ def sales():
 
     except Exception as e:
         return f"Error loading sales form: {e}"
+@app.route("/edit-sale/<int:sale_id>", methods=["GET", "POST"])
+def edit_sale(sale_id):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if request.method == "POST":
+                    gas_id = request.form["gas_id"]
+                    cash = float(request.form["amount_paid_cash"])
+                    till = float(request.form["amount_paid_till"])
+                    cur.execute("""
+                        UPDATE sales_table
+                        SET gas_id = %s, amount_paid_cash = %s, amount_paid_till = %s
+                        WHERE sale_id = %s;
+                    """, (gas_id, cash, till, sale_id))
+                    conn.commit()
+                    return redirect(url_for('sales'))
+
+                # For GET: load the existing sale
+                cur.execute("SELECT gas_id, amount_paid_cash, amount_paid_till FROM sales_table WHERE sale_id = %s;", (sale_id,))
+                row = cur.fetchone()
+                if not row:
+                    return "Sale not found."
+
+                sale = {
+                    "gas_id": row[0],
+                    "amount_paid_cash": row[1],
+                    "amount_paid_till": row[2]
+                }
+
+                # Load all gas types for dropdown
+                cur.execute("SELECT gas_id, gas_name FROM gas_table;")
+                gases = cur.fetchall()
+
+        return render_template("edit_sale.html", sale=sale, gases=gases)
+
+    except Exception as e:
+        return f"Error editing sale: {e}"
+
 @app.route('/submit-sale', methods=['POST'])
 def submit_sale():
     try:
@@ -185,6 +226,53 @@ def submit_sale():
         flash(f"Error processing sale: {str(e)}", "error")
 
     return redirect("/sales")
+@app.route("/delete-sale/<int:sale_id>")
+def delete_sale(sale_id):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Fetch the sale record
+                cur.execute("""
+                    SELECT gas_id, source_kipsongo_pioneer, source_mama_pam, source_external
+                    FROM sales_table WHERE sale_id = %s
+                """, (sale_id,))
+                sale = cur.fetchone()
+
+                if not sale:
+                    return "Sale not found.", 404
+
+                gas_id, is_kipsongo, is_mama_pam, is_external = sale
+
+                # Undo the gas count updates
+                if is_kipsongo:
+                    # Subtract 1 from kipsongo_sales
+                    cur.execute("UPDATE kipsongo_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                elif is_mama_pam:
+                    cur.execute("UPDATE mama_pam_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                elif is_external:
+                    cur.execute("UPDATE external_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                else:
+                    # No source selected: reverse both empty and filled
+                    cur.execute("""
+                        UPDATE gas_table 
+                        SET empty_cylinders = empty_cylinders - 1,
+                            filled_cylinders = filled_cylinders - 1
+                        WHERE gas_id = %s
+                    """, (gas_id,))
+
+                # Delete the sale record
+                cur.execute("DELETE FROM sales_table WHERE sale_id = %s", (sale_id,))
+                conn.commit()
+
+        flash("Sale deleted and gas counts reverted.", "success")
+        return redirect(url_for('sales'))
+
+    except Exception as e:
+        return f"Error deleting sale: {e}"
+
 
 
 
@@ -226,7 +314,7 @@ def handle_gas_source(source_name, session_key, table_name, template_name):
         try:
             quantity = int(quantity) if quantity else 1
         except ValueError:
-            quantity = 1
+            quantity = 1 
 
         print(f"[DEBUG] Action received: {action}, Nav: {nav}, Quantity: {quantity}")
 

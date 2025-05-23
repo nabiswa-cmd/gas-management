@@ -176,12 +176,14 @@
             </fieldset>
 
             <button type="submit">Submit Sale</button>
+            <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+
         </form>
 
         <div class="table-container">
             <h2>Recent Sales</h2>
             {% for group in grouped_sales %}
-                <div class="date-heading">{{ group.date }}</div>
+                <div class="date-heading">{{ group.date_str }}</div>
                 <table>
                     <tr>
                         <th>Sale ID</th>
@@ -190,6 +192,8 @@
                         <th>Till</th>
                         <th>Total</th>
                         <th>Time Sold</th> 
+                        <th>Action</th>
+
                     </tr>
                     {% for sale in group.sales %}
                     <tr>
@@ -199,6 +203,11 @@
                         <td>KSH {{ "%.2f"|format(sale.till) }}</td>
                         <td>KSH {{ "%.2f"|format(sale.cash + sale.till) }}</td>
                         <td>{{ sale.time }}</td>
+                        <td>
+    <a href="{{ url_for('edit_sale', sale_id=sale.id) }}" style="color: #d41818; text-decoration: underline;">Edit</a>
+    <a href="{{ url_for('delete_sale', sale_id=sale.id) }}" style="color: red;" onclick="return confirm('Are you sure you want to delete this sale?');">Delete</a>
+</td>
+
                     </tr>
                     {% endfor %}
                     <tr class="total-row">
@@ -209,7 +218,6 @@
         </div>
     </div>
 
-    <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
-
+   
 </body>
 </html>
