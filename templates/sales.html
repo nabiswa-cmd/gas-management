@@ -117,14 +117,14 @@
             margin-top: 20px;
             text-align: center;
             text-decoration: none;
-            background-color: #d41818;
+            background-color: #019c37;
             color: white;
             padding: 10px;
             border-radius: 5px;
         }
 
         .dashboard-link:hover {
-            background-color: #a81212;
+            background-color: #05fb32;
         }
 
         @media(min-width: 768px) {
@@ -143,6 +143,25 @@
 <body>
 
     <h2>Gas Sale Entry</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div>
+      {% for category, message in messages %}
+        <div style="padding: 10px; margin-bottom: 10px; border-radius: 5px;
+                    {% if category == 'success' %}
+                      background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;
+                    {% elif category == 'error' %}
+                      background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                    {% else %}
+                      background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+                    {% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
 
     <div class="container">
         <form method="POST" action="/submit-sale">
@@ -162,19 +181,27 @@
             <input type="number" name="amount_paid_till" step="0.01" required>
 
             <fieldset>
-                <legend>Source</legend>
-                <label><input type="checkbox" name="source_kipsongo_pioneer"> Kipsongo Pioneer</label><br>
-                <label><input type="checkbox" name="source_mama_pam"> Mama Pam</label><br>
-                <label><input type="checkbox" name="source_external"> External Source</label>
-            </fieldset>
+                <legend>empty received from ; </legend>
+                <input type="radio" name="source" value="kipsongo_pioneer"> Kipsongo Pioneer<br>
+<input type="radio" name="source" value="mama_pam"> Mama Pam<br>
+<input type="radio" name="source" value="external"> External<br>
+<input type="radio" name="source" value="customer" checked> customer<br>
+</fieldset>
+            
 
             <fieldset>
-                <legend>Status</legend>
-                <label><input type="checkbox" name="complete_power"> Complete Power</label><br>
-                <label><input type="checkbox" name="empty_not_given"> Empty Not Given</label><br>
-                <label><input type="checkbox" name="exchange_cylinder"> Exchange of Cylinder</label>
-            </fieldset>
+                 <legend>special event during sale;</legend>
+                <label><input type="radio" name="sale_type" value="complete_sale"> Complete Sale</label><br>
+<label><input type="radio" name="sale_type" value="empty_not_given"> Empty Not Given</label><br>
+<label><input type="radio" name="sale_type" value="exchange_cylinder"> Exchange Cylinder</label><br>
 
+            </fieldset>
+            <fieldset>
+                <legend></legend>
+            <label><input type="radio" name="to_be_status" value="none" checked> None</label><br>
+<label><input type="radio" name="to_be_status" value="to_be_paid_later"> Debt (post pay)</label><br>
+<label><input type="radio" name="to_be_status" value="to_be_picked_later">collect later (pre pay)</label><br>
+</fieldset>
             <button type="submit">Submit Sale</button>
             <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
 

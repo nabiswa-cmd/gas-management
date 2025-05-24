@@ -3,98 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <title>Dashboard - Ukweli Gas System</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
     <style>
         body {
             font-family: 'Poppins', sans-serif;
-            background-color: #f0f2f5;
             margin: 0;
             padding: 20px;
+            background-color: #f8f9fa;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             min-height: 100vh;
         }
 
         h2 {
-            margin-bottom: 30px;
             font-weight: 600;
-            color: #333;
+            color: #343a40;
+            margin-bottom: 40px;
             text-align: center;
         }
 
-        .buttons {
+        .dashboard-grid {
             display: grid;
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
             width: 100%;
-            max-width: 500px;
-            grid-template-columns: 1fr;
-            margin-bottom: 30px;
+            max-width: 900px;
         }
 
-        form button, .link-btn {
+        .card-btn {
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 14px;
-            font-size: 16px;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            color: #343a40;
             font-weight: 600;
             text-decoration: none;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background-color 0.3s, transform 0.3s;
         }
 
-        form button {
-            background-color: #42A5F5;
-            color: white;
+        .card-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.12);
         }
 
-        form button:hover {
-            background-color: #1E88E5;
-            transform: translateY(-2px);
+        .card-btn i {
+            font-size: 32px;
+            margin-bottom: 10px;
+            color: #007bff;
         }
 
-        .link-btn {
-            background-color: #FF6B6B;
-            color: white;
-            text-align: center;
-        }
-
-        .link-btn:hover {
-            background-color: #D9534F;
-            transform: translateY(-2px);
+        .logout-section {
+            margin-top: 40px;
         }
 
         .logout-btn {
-            background-color: #6c757d;
-            color: white;
-            padding: 12px 20px;
+            padding: 12px 24px;
             font-size: 16px;
-            font-weight: 600;
+            background-color: #dc3545;
+            color: #ffffff;
             border: none;
             border-radius: 8px;
             cursor: pointer;
-            transition: background-color 0.3s, transform 0.3s;
+            transition: background-color 0.3s ease;
         }
 
         .logout-btn:hover {
-            background-color: #495057;
-            transform: translateY(-2px);
-        }
-
-        @media (min-width: 600px) {
-            .buttons {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (min-width: 768px) {
-            .buttons {
-                grid-template-columns: repeat(3, 1fr);
-            }
+            background-color: #b02a37;
         }
     </style>
 </head>
@@ -102,25 +84,29 @@
 
     <h2>Welcome, {{ username }}</h2>
 
-    <div class="buttons">
+    <div class="dashboard-grid">
         <form action="/sales" method="get">
-            <button type="submit">Sales Form</button>
-        </form>
-        <form action="/refill-form" method="get">
-            <button type="submit">Refill Gas Form</button>
-        </form>
-        <form action="/gas-form" method="get">
-            <button type="submit">Add/View Gas</button>
+            <button type="submit" class="card-btn"><i class="fas fa-shopping-cart"></i>Sales Form</button>
         </form>
 
-        <a href="/external-u" class="link-btn">External</a>
-        <a href="/kipsongo-gas-u" class="link-btn">Kipsongo</a>
-        <a href="/mpam-gas-u" class="link-btn">Mama Pam</a>
+        <form action="/refill-form" method="get">
+            <button type="submit" class="card-btn"><i class="fas fa-gas-pump"></i>Refill Gas</button>
+        </form>
+
+        <form action="/gas-form" method="get">
+            <button type="submit" class="card-btn"><i class="fas fa-plus-square"></i>Add/View Gas</button>
+        </form>
+
+        <a href="/external-u" class="card-btn"><i class="fas fa-truck"></i>External</a>
+        <a href="/kipsongo-gas-u" class="card-btn"><i class="fas fa-warehouse"></i>Kipsongo</a>
+        <a href="/mpam-gas-u" class="card-btn"><i class="fas fa-store"></i>Mama Pam</a>
     </div>
 
-    <form action="/logout" method="post">
-        <button type="submit" class="logout-btn">Logout</button>
-    </form>
+    <div class="logout-section">
+        <form action="/logout" method="post">
+            <button type="submit" class="logout-btn">Logout</button>
+        </form>
+    </div>
 
 </body>
 </html>

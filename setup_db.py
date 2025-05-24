@@ -18,21 +18,22 @@ try:
 
     # --- Create sales_table ---
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS sales_table (
-        sale_id SERIAL PRIMARY KEY,
-        gas_id INTEGER REFERENCES gas_table(gas_id),
-        time_sold TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        amount_paid_cash NUMERIC(10, 2) DEFAULT 0,
-        amount_paid_till NUMERIC(10, 2) DEFAULT 0,
-        total NUMERIC(10, 2) GENERATED ALWAYS AS (amount_paid_cash + amount_paid_till) STORED,
-        source_kipsongo_pioneer BOOLEAN DEFAULT FALSE,
-        source_mama_pam BOOLEAN DEFAULT FALSE,
-        source_external BOOLEAN DEFAULT FALSE,
-        complete_power BOOLEAN DEFAULT FALSE,
-        empty_not_given BOOLEAN DEFAULT FALSE,
-        exchange_cylinder BOOLEAN DEFAULT FALSE
-    );
-    """)
+            CREATE TABLE IF NOT EXISTS sales_table (
+                sale_id SERIAL PRIMARY KEY,
+                gas_id INTEGER REFERENCES gas_table(gas_id),
+                sale_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                amount_paid_cash NUMERIC(10,2) DEFAULT 0,
+                amount_paid_till NUMERIC(10,2) DEFAULT 0,
+                total NUMERIC(10,2) GENERATED ALWAYS AS (amount_paid_cash + amount_paid_till) STORED,
+                time_sold TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                source_kipsongo_pioneer BOOLEAN DEFAULT FALSE,
+                source_mama_pam BOOLEAN DEFAULT FALSE,
+                source_external BOOLEAN DEFAULT FALSE,
+                complete_sale BOOLEAN DEFAULT FALSE,
+                empty_not_given BOOLEAN DEFAULT FALSE,
+                exchange_cylinder BOOLEAN DEFAULT FALSE
+            );
+        """)
 
     # --- Create users table ---
     cur.execute("""

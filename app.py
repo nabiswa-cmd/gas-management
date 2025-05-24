@@ -88,8 +88,10 @@ def sales():
                 grouped_sales.sort(key=lambda x: x["date"], reverse=True)
 
                 # Load gas list
-                cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table;")
+                cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id ASC;")
                 gases = cur.fetchall()
+                
+
 
         return render_template("sales.html", gases=gases, grouped_sales=grouped_sales)
 
@@ -101,14 +103,14 @@ def edit_sale(sale_id):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 if request.method == "POST":
-                    gas_id = request.form["gas_id"]
                     cash = float(request.form["amount_paid_cash"])
                     till = float(request.form["amount_paid_till"])
+                    # Only update payment amounts, not gas_id
                     cur.execute("""
                         UPDATE sales_table
-                        SET gas_id = %s, amount_paid_cash = %s, amount_paid_till = %s
+                        SET amount_paid_cash = %s, amount_paid_till = %s
                         WHERE sale_id = %s;
-                    """, (gas_id, cash, till, sale_id))
+                    """, (cash, till, sale_id))
                     conn.commit()
                     return redirect(url_for('sales'))
 
@@ -124,11 +126,13 @@ def edit_sale(sale_id):
                     "amount_paid_till": row[2]
                 }
 
-                # Load all gas types for dropdown
-                cur.execute("SELECT gas_id, gas_name FROM gas_table;")
+                # Load all gas types to show the gas name (readonly)
+                cur.execute("SELECT gas_id, gas_name FROM gas_table ORDER BY gas_name ASC")
                 gases = cur.fetchall()
 
         return render_template("edit_sale.html", sale=sale, gases=gases)
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
 
     except Exception as e:
         return f"Error editing sale: {e}"
@@ -139,15 +143,21 @@ def submit_sale():
         gas_id = int(request.form["gas_id"])
         amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
         amount_paid_till = float(request.form.get("amount_paid_till", 0))
-        source_kipsongo_pioneer = 'source_kipsongo_pioneer' in request.form
-        source_mama_pam = 'source_mama_pam' in request.form
-        source_external = 'source_external' in request.form
-        complete_power = 'complete_power' in request.form
-        empty_not_given = 'empty_not_given' in request.form
-        exchange_cylinder = 'exchange_cylinder' in request.form
+        
+        selected_source = request.form.get("source", "customer")
+        source_kipsongo_pioneer = selected_source == "kipsongo_pioneer"
+        source_mama_pam = selected_source == "mama_pam"
+        source_external = selected_source == "external"
+
+        sale_type = request.form.get("sale_type")
+
+        complete_sale = sale_type == "complete_sale"
+        empty_not_given = sale_type == "empty_not_given"
+        exchange_cylinder = sale_type == "exchange_cylinder"
+
         time_sold = datetime.now()
 
-        source_selected = source_kipsongo_pioneer or source_mama_pam or source_external
+        source_selected = selected_source in ["kipsongo_pioneer", "mama_pam", "external"]
 
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -171,12 +181,12 @@ def submit_sale():
                     INSERT INTO sales_table (
                         gas_id, amount_paid_cash, amount_paid_till,
                         source_kipsongo_pioneer, source_mama_pam, source_external,
-                        complete_power, empty_not_given, exchange_cylinder, time_sold
+                        complete_sale, empty_not_given, exchange_cylinder, time_sold
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     gas_id, amount_paid_cash, amount_paid_till,
                     source_kipsongo_pioneer, source_mama_pam, source_external,
-                    complete_power, empty_not_given, exchange_cylinder, time_sold
+                    complete_sale, empty_not_given, exchange_cylinder, time_sold
                 ))
 
                 # Always increase empty cylinders by 1
@@ -186,7 +196,7 @@ def submit_sale():
                     WHERE gas_id = %s
                 """, (gas_id,))
 
-                # If no source is selected, also increase filled cylinders
+                # If no source is selected, also decrease filled cylinders by 1
                 if not source_selected:
                     cur.execute("""
                         UPDATE gas_table
@@ -203,7 +213,7 @@ def submit_sale():
                         SET number_of_gas = kipsongo_gas_in_ukweli.number_of_gas + 1
                     """, (gas_id,))
 
-                if source_mama_pam:
+                elif source_mama_pam:
                     cur.execute("""
                         INSERT INTO mama_pam_gas_in_ukweli (gas_id, number_of_gas)
                         VALUES (%s, 1)
@@ -211,7 +221,7 @@ def submit_sale():
                         SET number_of_gas = mama_pam_gas_in_ukweli.number_of_gas + 1
                     """, (gas_id,))
 
-                if source_external:
+                elif source_external:
                     cur.execute("""
                         INSERT INTO external_gas_in_ukweli (gas_id, number_of_gas)
                         VALUES (%s, 1)
@@ -224,8 +234,10 @@ def submit_sale():
 
     except Exception as e:
         flash(f"Error processing sale: {str(e)}", "error")
-
+    selected_gas_id = request.form.get("gas_id")  # This might be None on GET
+    
     return redirect("/sales")
+
 @app.route("/delete-sale/<int:sale_id>")
 def delete_sale(sale_id):
     try:
@@ -246,20 +258,20 @@ def delete_sale(sale_id):
                 # Undo the gas count updates
                 if is_kipsongo:
                     # Subtract 1 from kipsongo_sales
-                    cur.execute("UPDATE kipsongo_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE kipsongo_gas_in_ukweli SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
                     cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
                 elif is_mama_pam:
-                    cur.execute("UPDATE mama_pam_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE mama_pam_gas_in_ukweli SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
                     cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
                 elif is_external:
-                    cur.execute("UPDATE external_sales SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
+                    cur.execute("UPDATE external_gas_in_ukweli SET number_of_gas = number_of_gas - 1 WHERE gas_id = %s", (gas_id,))
                     cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
                 else:
                     # No source selected: reverse both empty and filled
                     cur.execute("""
                         UPDATE gas_table 
                         SET empty_cylinders = empty_cylinders - 1,
-                            filled_cylinders = filled_cylinders - 1
+                            filled_cylinders = filled_cylinders + 1
                         WHERE gas_id = %s
                     """, (gas_id,))
 
@@ -267,7 +279,7 @@ def delete_sale(sale_id):
                 cur.execute("DELETE FROM sales_table WHERE sale_id = %s", (sale_id,))
                 conn.commit()
 
-        flash("Sale deleted and gas counts reverted.", "success")
+        flash("Sale deleted .", "success")
         return redirect(url_for('sales'))
 
     except Exception as e:
