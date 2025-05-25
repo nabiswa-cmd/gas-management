@@ -54,12 +54,12 @@
             font-weight: bold;
         }
 
-        button {
-            background-color: #d41818;
+        button,.button {
+            background-color: hsl(187, 80%, 46%);
             color: white;
             padding: 10px;
             margin-top: 15px;
-            width: 100%;
+            width: 50%;
             border: none;
             border-radius: 5px;
             cursor: pointer;
@@ -71,7 +71,7 @@
         }
 
         .table-container {
-            background-color: #fff;
+            background-color: hsl(64, 91%, 78%);
             padding: 15px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -85,7 +85,9 @@
             padding: 8px;
             border-left: 4px solid #d41818;
         }
-
+        .button{
+            width: 100%;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -109,7 +111,7 @@
 
         .total-row {
             font-weight: bold;
-            background-color: #f9f9f9;
+            background-color: #07f01a;
         }
 
         .dashboard-link {
@@ -144,7 +146,7 @@
 
     <h2>Gas Sale Entry</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
+    {% if messages %}
     <div>
       {% for category, message in messages %}
         <div style="padding: 10px; margin-bottom: 10px; border-radius: 5px;
@@ -159,14 +161,13 @@
         </div>
       {% endfor %}
     </div>
-  {% endif %}
-{% endwith %}
-
+    {% endif %}
+    {% endwith %}
 
     <div class="container">
         <form method="POST" action="/submit-sale">
             <label for="gas_id">Gas Name:</label>
-            <select name="gas_id" required>
+            <select name="gas_id" id="gas_id_select" required>
                 {% for gas in gases %}
                 <option value="{{ gas[0] }}">
                     {{ gas[1] }} (Empty:{{ gas[2] }}, Filled:{{ gas[3] }})
@@ -174,35 +175,36 @@
                 {% endfor %}
             </select>
 
+            <div style="margin-top: 10px;">
+                <a id="debt_link" href="{{ url_for('add_gas_debt', gas_id=gases[0][0]) }}" style="color: red; text-decoration: underline;">click here for Debt/pay later s(POST PAY)</a>
+                
+            </div>
+
             <label for="amount_paid_cash">Amount Paid (Cash):</label>
             <input type="number" name="amount_paid_cash" step="0.01" required>
 
             <label for="amount_paid_till">Amount Paid (Till):</label>
             <input type="number" name="amount_paid_till" step="0.01" required>
-
+            <a id="debt_link" href="{{ url_for('add_gas_debt', gas_id=gases[0][0]) }}" style="color: #15ff00; text-decoration: underline;">click here for Gas To be collected later(PRE-PAY)</a>
             <fieldset>
-                <legend>empty received from ; </legend>
+                <legend>Empty received from ; </legend>
                 <input type="radio" name="source" value="kipsongo_pioneer"> Kipsongo Pioneer<br>
-<input type="radio" name="source" value="mama_pam"> Mama Pam<br>
-<input type="radio" name="source" value="external"> External<br>
-<input type="radio" name="source" value="customer" checked> customer<br>
-</fieldset>
-            
-
-            <fieldset>
-                 <legend>special event during sale;</legend>
-                <label><input type="radio" name="sale_type" value="complete_sale"> Complete Sale</label><br>
-<label><input type="radio" name="sale_type" value="empty_not_given"> Empty Not Given</label><br>
-<label><input type="radio" name="sale_type" value="exchange_cylinder"> Exchange Cylinder</label><br>
-
+                <input type="radio" name="source" value="mama_pam"> Mama Pam<br>
+                <input type="radio" name="source" value="external"> External<br>
+                <input type="radio" name="source" value="customer" checked> Customer<br>
+           <button type="submit">Submit Sale</button>
             </fieldset>
+
             <fieldset>
-                <legend></legend>
-            <label><input type="radio" name="to_be_status" value="none" checked> None</label><br>
-<label><input type="radio" name="to_be_status" value="to_be_paid_later"> Debt (post pay)</label><br>
-<label><input type="radio" name="to_be_status" value="to_be_picked_later">collect later (pre pay)</label><br>
-</fieldset>
-            <button type="submit">Submit Sale</button>
+                <legend>Special event during sale;</legend>
+                <label><input type="radio" name="sale_type" value="complete_sale"> Complete Sale</label><br>
+                <label><input type="radio" name="sale_type" value="empty_not_given"> Empty Not Given</label><br>
+                <label><input type="radio" name="sale_type" value="exchange_cylinder"> Exchange Cylinder</label><br>
+            <a class= "button" href="">Specail Submit sale </a>
+            </fieldset>
+
+
+            
             <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
 
         </form>
@@ -218,9 +220,8 @@
                         <th>Cash</th>
                         <th>Till</th>
                         <th>Total</th>
-                        <th>Time Sold</th> 
+                        <th>Time Sold</th>
                         <th>Action</th>
-
                     </tr>
                     {% for sale in group.sales %}
                     <tr>
@@ -231,13 +232,12 @@
                         <td>KSH {{ "%.2f"|format(sale.cash + sale.till) }}</td>
                         <td>{{ sale.time }}</td>
                         <td>
-    <a href="{{ url_for('edit_sale', sale_id=sale.id) }}" style="color: #d41818; text-decoration: underline;">Edit</a>
-    <a href="{{ url_for('delete_sale', sale_id=sale.id) }}" style="color: red;" onclick="return confirm('Are you sure you want to delete this sale?');">Delete</a>
-</td>
-
+                            <a href="{{ url_for('edit_sale', sale_id=sale.id) }}" style="color: #d41818; text-decoration: underline;">Edit</a>
+                            <a href="{{ url_for('delete_sale', sale_id=sale.id) }}" style="color: red;" onclick="return confirm('Are you sure you want to delete this sale?');">Delete</a>
+                        </td>
                     </tr>
                     {% endfor %}
-                    <tr class="total-row">
+                     <tr class="total-row">
                         <td colspan="6">Total Gas Sold: {{ group.total_gas }}</td>
                     </tr>
                 </table>
@@ -245,6 +245,15 @@
         </div>
     </div>
 
-   
+    <script>
+        const gasSelect = document.getElementById('gas_id_select');
+        const debtLink = document.getElementById('debt_link');
+
+        gasSelect.addEventListener('change', function() {
+            const selectedGasId = this.value;
+            debtLink.href = "{{ url_for('add_gas_debt') }}" + "?gas_id=" + selectedGasId;
+        });
+    </script>
+
 </body>
 </html>

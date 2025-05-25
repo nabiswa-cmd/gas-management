@@ -1,26 +1,131 @@
-<!-- templates/gas_form.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Add New Gas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 15px;
+            background-color: #f9f9f9;
+            color: #333;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        h2 {
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        form {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        label, input {
+            display: block;
+            width: 100%;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        input[type="text"], input[type="number"] {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            padding: 14px;
+            width: 100%;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #ddd;
+            text-align: center;
+        }
+        th {
+            background-color: #444;
+            color: white;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        a.back-link {
+            display: block;
+            text-align: center;
+            margin-top: 25px;
+            color: #4285f4;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        a.back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
 <h2>Add New Gas</h2>
-<form method="POST">
-    Gas Name: <input type="text" name="gas_name" required><br>
-    Empty Cylinders: <input type="number" name="empty_cylinders" required><br>
-    Filled Cylinders: <input type="number" name="filled_cylinders" required><br>
+<<form action="/add-gas" method="POST">
+    <label for="gas_name">Gas Name:</label>
+    <input type="text" id="gas_name" name="gas_name" required>
+
+    <label for="empty_cylinders">Empty Cylinders:</label>
+    <input type="number" id="empty_cylinders" name="empty_cylinders" min="0" required>
+
+    <label for="filled_cylinders">Filled Cylinders:</label>
+    <input type="number" id="filled_cylinders" name="filled_cylinders" min="0" required>
+
     <button type="submit">Add Gas</button>
 </form>
 
+
 <h2>Gas List</h2>
-<table border="1">
-    <tr>
-        <th>ID</th><th>Name</th><th>Empty</th><th>Filled</th><th>Total</th>
-    </tr>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th><th>Name</th><th>Empty</th><th>Filled</th><th>Total</th>
+        </tr>
+    </thead>
+    <tbody>
     {% for gas in gases %}
-    <tr>
-        <td>{{ gas[0] }}</td>
-        <td>{{ gas[1] }}</td>
-        <td>{{ gas[2] }}</td>
-        <td>{{ gas[3] }}</td>
-        <td>{{ gas[2] + gas[3] }}</td>
-    </tr>
+        <tr>
+            <td>{{ gas[0] }}</td>
+            <td>{{ gas[1] }}</td>
+            <td>{{ gas[2] }}</td>
+            <td>{{ gas[3] }}</td>
+            <td>{{ gas[2] + gas[3] }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="5" style="text-align:center;">No gas data available.</td></tr>
     {% endfor %}
+    </tbody>
 </table>
 
-<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+<a href="{{ url_for('dashboard') }}" class="back-link">Back to Dashboard</a>
+
+</body>
+</html>

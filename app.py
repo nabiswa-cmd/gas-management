@@ -42,11 +42,165 @@ def dashboard():
         return render_template('dashboard.html', username=session['username'])
     else:
         return redirect(url_for('home'))
+from flask import request, redirect, url_for, flash
+from psycopg2.extras import RealDictCursor
+
+@app.post("/delete-gas-debt/<int:debt_id>")
+def delete_gas_debt(debt_id):
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        # Fetch the current debt record
+        cur.execute("SELECT amount_paid, amount_to_be_paid FROM gas_debts WHERE id = %s", (debt_id,))
+        debt = cur.fetchone()
+
+        if debt is None:
+            flash("Debt record not found.")
+        else:
+            amount_paid = debt["amount_paid"] or 0
+            amount_to_be_paid = debt["amount_to_be_paid"] or 0
+            balance = amount_to_be_paid - amount_paid
+
+            if balance > 0:
+                flash("Cannot delete. Customer still has a balance.")
+            else:
+                # Delete the main debt record — related payments will be deleted if ON DELETE CASCADE is used
+                cur.execute("DELETE FROM gas_debts WHERE id = %s", (debt_id,))
+                conn.commit()
+                flash("Debt record deleted successfully.")
+
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error occurred: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for("gas_debt"))
+
+@app.route('/add-gas-debt', methods=['GET', 'POST'])
+def add_gas_debt():
+    gas_id = request.args.get('gas_id')
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM gas_debts")
+    debt_list = cur.fetchall()
+
+    search = request.args.get("search")
+    query = "SELECT * FROM gas_debts"
+    params = ()
+    if search:
+        query += " WHERE customer_name ILIKE %s OR gas_name ILIKE %s"
+        params = (f"%{search}%", f"%{search}%")
+    cur.execute(query, params)
+    cur.execute("""
+        SELECT d.*, g.gas_name
+        FROM gas_debts d
+        JOIN gas_table g ON d.gas_id = g.gas_id
+        ORDER BY d.time DESC
+    """)
+    debt_list = cur.fetchall()
+
+
+    if request.method == 'POST':
+        gas_id = request.form['gas_id']
+        amount_paid = float(request.form['amount_paid'])
+        amount_to_be_paid = float(request.form['amount_to_be_paid'])
+        date_to_be_paid = request.form['date_to_be_paid']
+        authorized_by = request.form['authorized_by']
+        empty_given = 'empty_cylinder_given' in request.form
+        customer_name = request.form['customer_name']
+        customer_phone = request.form['customer_phone']
+        customer_address = request.form['customer_address']
+        customer_picture = request.files.get('customer_picture')
+        image_data = customer_picture.read() if customer_picture else None
+
+        cur.execute("""
+            INSERT INTO gas_debts (
+                gas_id, amount_paid, amount_to_be_paid, date_to_be_paid,
+                authorized_by, empty_cylinder_given, customer_name,
+                customer_phone, customer_address, customer_picture
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            gas_id, amount_paid, amount_to_be_paid, date_to_be_paid,
+            authorized_by, empty_given, customer_name,
+            customer_phone, customer_address, image_data
+        ))
+
+        # Update gas stock
+        if empty_given:
+            cur.execute("""
+                UPDATE gas_table
+                SET filled_cylinders = filled_cylinders - 1,
+                    empty_cylinders = empty_cylinders + 1
+                WHERE gas_id = %s
+            """, (gas_id,))
+        else:
+            cur.execute("""
+                UPDATE gas_table
+                SET filled_cylinders = filled_cylinders - 1
+                WHERE gas_id = %s
+            """, (gas_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return redirect('/dashboard')
+
+    # GET request: fetch gas name for display
+    gas_name = ''
+    if gas_id:
+        cur.execute("SELECT gas_name FROM gas_table WHERE gas_id = %s", (gas_id,))
+        row = cur.fetchone()
+        gas_name = row[0] if row else ''
+
+    cur.close()
+    conn.close()
+    return render_template('add_gas_debt.html', gas_id=gas_id,debt_list=debt_list ,gas_name=gas_name)
+@app.route('/add-gas', methods=['GET', 'POST'])
+def add_gas():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if request.method == 'POST':
+        gas_name = request.form['gas_name'].strip()
+        empty_cylinders = request.form['empty_cylinders']
+        filled_cylinders = request.form['filled_cylinders']
+
+        if not gas_name or empty_cylinders is None or filled_cylinders is None:
+            flash("Please fill all fields.")
+            return redirect(url_for('add_gas'))
+
+        try:
+            empty_cylinders = int(empty_cylinders)
+            filled_cylinders = int(filled_cylinders)
+        except ValueError:
+            flash("Quantity fields must be numbers.")
+            return redirect(url_for('add_gas'))
+
+        # Insert into gas table (adjust table and column names)
+        cur.execute("""
+            INSERT INTO gas_table (gas_name, empty_cylinders, filled_cylinders)
+            VALUES (%s, %s, %s)
+        """, (gas_name, empty_cylinders, filled_cylinders))
+        conn.commit()
+
+        flash(f"Gas '{gas_name}' added successfully.")
+        return redirect(url_for('add_gas'))
+
+    # On GET, show all gases
+    cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id")
+    gases = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template('gas_form.html', gases=gases)
 
 # --- SALES PAGE AND SUBMISSION ---
 
 
-from collections import defaultdict
 
 @app.route("/sales", methods=["GET"])
 def sales():
@@ -173,7 +327,7 @@ def submit_sale():
 
                 # If no source is selected and filled cylinders are zero, prevent sale
                 if filled == 0 and not source_selected:
-                    flash("No filled gas available and no source selected. Cannot proceed.", "error")
+                    flash("No filled  gas available in ukweli store confirm in other station.", "error")
                     return redirect("/sales")
 
                 # Insert into sales_table
@@ -237,6 +391,241 @@ def submit_sale():
     selected_gas_id = request.form.get("gas_id")  # This might be None on GET
     
     return redirect("/sales")
+@app.route('/stock-out', methods=['GET', 'POST'])
+def stock_out():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Get gases for dropdown
+    cur.execute("SELECT gas_id, gas_name ,empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_name")
+    gases = cur.fetchall()
+
+    # Get users for delivery dropdown
+    cur.execute("SELECT user_id, username FROM users ORDER BY username")
+    users = cur.fetchall()
+
+    message = None
+
+    if request.method == 'POST':
+        gas_id = request.form['gas_id']
+        cylinder_state = request.form['cylinder_state']
+        destination_type = request.form['destination_type']
+
+        # Pick correct destination value
+        if destination_type == "station":
+            destination_value = request.form.get("destination_value_station")
+        elif destination_type == "delivery":
+            destination_value = request.form.get("destination_value_delivery")
+        elif destination_type == "customer":
+            destination_value = request.form.get("destination_value_customer")
+        else:
+            destination_value = None
+
+        empty_not_given = request.form.get('empty_not_given')
+
+        # Check availability in gas_table
+        cur.execute("SELECT empty_cylinders, filled_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
+        stock = cur.fetchone()
+
+        if not stock:
+            message = "Gas not found."
+        else:
+            empty, filled = stock
+            available = filled if cylinder_state == 'filled' else empty
+
+            if available < 1:
+                message = f"No {cylinder_state} cylinders available to send out."
+            else:
+                # Subtract from gas_table
+                if cylinder_state == 'filled':
+                    cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                else:
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+
+                # Insert into stock_out table
+                cur.execute("""
+                    INSERT INTO stock_out (
+                        gas_id, 
+                        cylinder_state, 
+                        destination_type, 
+                        destination_value, 
+                        time_out
+                    ) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                """, (gas_id, cylinder_state, destination_type, destination_value))
+
+                conn.commit()
+                message = "Stock out entry saved successfully."
+
+    # Fetch stock_out records with gas name and unified destination detail
+    cur.execute("""
+        SELECT
+          so.id,
+          g.gas_name,
+          so.cylinder_state,
+          so.destination_type,
+          so.destination_value,
+          so.time_out
+        FROM stock_out so
+        JOIN gas_table g ON so.gas_id = g.gas_id
+        ORDER BY so.time_out DESC
+    """)
+    stock_out_records = cur.fetchall()
+
+    stock_out_list = []
+    for row in stock_out_records:
+        destination_type = row[3]
+        destination_value = row[4]
+        goes_to = customer_name = delivery_username = None
+
+        if destination_type == 'station':
+            goes_to = destination_value
+        elif destination_type == 'customer':
+            customer_name = destination_value
+        elif destination_type == 'delivery':
+            cur.execute("SELECT username FROM users WHERE user_id = %s", (destination_value,))
+            result = cur.fetchone()
+            delivery_username = result[0] if result else 'Unknown'
+
+        stock_out_list.append({
+            'id': row[0],
+            'gas_name': row[1],
+            'cylinder_state': row[2],
+            'goes_to': goes_to,
+            'customer_name': customer_name,
+            'delivery_username': delivery_username,
+            'time': row[5].strftime('%Y-%m-%d %H:%M:%S') if row[5] else ''
+        })
+
+    cur.close()
+    conn.close()
+
+    return render_template('stock_out.html',
+                           gases=gases,
+                           users=users,
+                           stock_out_records=stock_out_list,
+                           message=message)
+
+@app.route('/add-stock-out', methods=['POST'])
+def add_stock_out():
+    gas_id = request.form.get('gas_id')
+    cylinder_state = request.form.get('cylinder_state')
+    destination_type = request.form.get('destination_type')
+    empty_not_given = request.form.get('empty_not_given')  # This will be None if unchecked
+
+    # Validate required inputs
+    if not gas_id or not cylinder_state or not destination_type:
+        flash("All fields are required.", "error")
+        return redirect(url_for('stock_out'))
+
+    # Get correct destination_value from form
+    destination_value = None
+    if destination_type == 'station':
+        destination_value = request.form.get('destination_value_station')
+    elif destination_type == 'delivery':
+        destination_value = request.form.get('destination_value_delivery')
+    elif destination_type == 'customer':
+        destination_value = request.form.get('destination_value_customer')
+
+    if not destination_value:
+        flash("Destination value is required.", "error")
+        return redirect(url_for('stock_out'))
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Check gas availability
+    cur.execute("SELECT empty_cylinders, filled_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
+    stock = cur.fetchone()
+    if not stock:
+        flash("Gas record not found.", "error")
+        cur.close()
+        conn.close()
+        return redirect(url_for('stock_out'))
+
+    empty_stock, filled_stock = stock
+
+    if cylinder_state == 'empty' and empty_stock <= 0:
+        flash("No empty cylinders available for this gas.", "error")
+        cur.close()
+        conn.close()
+        return redirect(url_for('stock_out'))
+
+    if cylinder_state == 'filled' and filled_stock <= 0:
+        flash("No filled cylinders available for this gas.", "error")
+        cur.close()
+        conn.close()
+        return redirect(url_for('stock_out'))
+
+    # Insert into stock_out table
+    cur.execute("""
+        INSERT INTO stock_out (gas_id, cylinder_state, destination_type, destination_value)
+        VALUES (%s, %s, %s, %s)
+    """, (gas_id, cylinder_state, destination_type, destination_value))
+
+    # Update stock in gas_table
+    if empty_not_given and destination_type == 'customer':
+        # Special condition: customer didn't return the empty cylinder
+        if cylinder_state == 'empty':
+            cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+        elif cylinder_state == 'filled':
+            cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+    else:
+        # Default case
+        if cylinder_state == 'empty':
+            cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+        elif cylinder_state == 'filled':
+            cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    flash("Stock out recorded successfully.", "success")
+    return redirect(url_for('stock_out'))
+
+@app.route('/return-stock/<int:stock_id>', methods=['POST'])
+def return_stock(stock_id):
+    returned_state = request.form.get('returned_cylinder_state')
+    if returned_state not in ['empty', 'filled']:
+        flash('Invalid returned cylinder state.', 'error')
+        return redirect(url_for('stock_out'))
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Get original stock out record info
+    cur.execute("SELECT gas_id FROM stock_out WHERE id = %s", (stock_id,))
+    record = cur.fetchone()
+    if not record:
+        flash('Record not found.', 'error')
+        cur.close()
+        conn.close()
+        return redirect(url_for('stock_out'))
+
+    gas_id = record[0]
+
+    # Insert into stock_change with returned cylinder state
+    cur.execute("""
+        INSERT INTO stock_change (gas_id, cylinder_state, returned_to)
+        VALUES (%s, %s, %s)
+    """, (gas_id, returned_state, 'stock'))
+
+    # Delete from stock_out
+    cur.execute("DELETE FROM stock_out WHERE id = %s", (stock_id,))
+
+    # Update gas_table counts based on returned state
+    if returned_state == 'empty':
+        cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders + 1 WHERE gas_id = %s", (gas_id,))
+    else:
+        cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders + 1 WHERE gas_id = %s", (gas_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    flash('Gas returned successfully!', 'success')
+    return redirect(url_for('stock_out'))
+
 
 @app.route("/delete-sale/<int:sale_id>")
 def delete_sale(sale_id):
@@ -457,7 +846,7 @@ def kipsongo_gas_u():
 @app.route('/logout', methods=['POST'])
 def logout():
     session.clear()
-    return redirect(url_for('login'))
+    return redirect('/')
 
 @app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
 def delete_kipsongo_gas(id):
@@ -475,8 +864,15 @@ def refill():
     return render_template('refill.html')
 @app.route("/gas-form")
 def gasform():
-    
-    return render_template('gas_form.html')
+    conn = get_connection()          # Call the function to get connection
+    cur = conn.cursor()              # Use cur or cursor consistently
+    cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id")
+    gases = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # Assuming you want to render a template 'gas_form.html' with gases data
+    return render_template('gas_form.html', gases=gases)
 
 @app.route("/debug-gases")
 def debug_gases():
