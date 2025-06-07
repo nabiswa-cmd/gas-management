@@ -1,15 +1,14 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import psycopg2
+import psycopg2.extras  
 from datetime import datetime
 from collections import defaultdict
 from datetime import datetime
 
-
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-DATABASE_URL = "postgresql://ukwelitradersbase_user:KQTv3VjbP9E7lCo4wAmERxGrg7arHHlp@dpg-d0b0e82dbo4c73c9st5g-a.oregon-postgres.render.com/ukwelitradersbase"
-
+DATABASE_URL = "postgresql://james:SPpKLyvgRTImuzDFaUy4thGKojpKfuBY@dpg-d120e495pdvs73c758og-a.oregon-postgres.render.com/ukwelidb"
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -44,6 +43,61 @@ def dashboard():
         return redirect(url_for('home'))
 from flask import request, redirect, url_for, flash
 from psycopg2.extras import RealDictCursor
+from flask import request, jsonify
+import psycopg2
+import psycopg2.extras
+
+@app.route('/add-gas-debt-payment', methods=['POST'])
+def add_gas_debt_payment():
+    try:
+        data = request.get_json()
+        debt_id = data['debt_id']
+        amount = float(data['payment_amount'])
+
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = conn.cursor()
+
+        # Insert the payment into gas_debt_payments table
+        cur.execute("""
+            INSERT INTO gas_debt_payments (debt_id, amount)
+            VALUES (%s, %s)
+        """, (debt_id, amount))
+
+        # Calculate the total amount paid for this debt
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0) AS total_paid
+            FROM gas_debt_payments
+            WHERE debt_id = %s
+        """, (debt_id,))
+        total_paid = cur.fetchone()['total_paid']
+
+        # Get the original amount to be paid for this debt
+        cur.execute("""
+            SELECT amount_to_be_paid
+            FROM gas_debts
+            WHERE id = %s
+        """, (debt_id,))
+        result = cur.fetchone()
+        amount_to_be_paid = result['amount_to_be_paid'] if result else 0
+
+        # Calculate remaining balance
+        balance = float(amount_to_be_paid) - float(total_paid)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Return updated values
+        return jsonify({
+            'success': True,
+            'total_paid': float(total_paid),
+            'balance': float(balance)
+        })
+
+    except Exception as e:
+        print("Error processing payment:", e)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.post("/delete-gas-debt/<int:debt_id>")
 def delete_gas_debt(debt_id):
@@ -78,30 +132,11 @@ def delete_gas_debt(debt_id):
         conn.close()
 
     return redirect(url_for("gas_debt"))
-
 @app.route('/add-gas-debt', methods=['GET', 'POST'])
 def add_gas_debt():
     gas_id = request.args.get('gas_id')
-    conn = get_connection()
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     cur = conn.cursor()
-    cur.execute("SELECT * FROM gas_debts")
-    debt_list = cur.fetchall()
-
-    search = request.args.get("search")
-    query = "SELECT * FROM gas_debts"
-    params = ()
-    if search:
-        query += " WHERE customer_name ILIKE %s OR gas_name ILIKE %s"
-        params = (f"%{search}%", f"%{search}%")
-    cur.execute(query, params)
-    cur.execute("""
-        SELECT d.*, g.gas_name
-        FROM gas_debts d
-        JOIN gas_table g ON d.gas_id = g.gas_id
-        ORDER BY d.time DESC
-    """)
-    debt_list = cur.fetchall()
-
 
     if request.method == 'POST':
         gas_id = request.form['gas_id']
@@ -128,7 +163,6 @@ def add_gas_debt():
             customer_phone, customer_address, image_data
         ))
 
-        # Update gas stock
         if empty_given:
             cur.execute("""
                 UPDATE gas_table
@@ -146,18 +180,62 @@ def add_gas_debt():
         conn.commit()
         cur.close()
         conn.close()
-        return redirect('/dashboard')
+        return redirect(url_for('add_gas_debt'))
 
-    # GET request: fetch gas name for display
+    # GET logic
+    search = request.args.get("search")
+    query = """
+        SELECT d.*, g.gas_name
+        FROM gas_debts d
+        JOIN gas_table g ON d.gas_id = g.gas_id
+    """
+    params = ()
+    if search:
+        query += " WHERE d.customer_name ILIKE %s OR g.gas_name ILIKE %s"
+        params = (f"%{search}%", f"%{search}%")
+    query += " ORDER BY d.time DESC"
+
+    cur.execute(query, params)
+    debt_list = cur.fetchall()
+
+    # Fetch payments
+    cur.execute("""
+        SELECT debt_id, amount, payment_date
+        FROM gas_debt_payments
+        WHERE debt_id IN %s
+        ORDER BY payment_date DESC
+    """, (tuple(d['id'] for d in debt_list) if debt_list else (0,),))
+    all_payments = cur.fetchall()
+
+    # Group payments by debt_id
+    from collections import defaultdict
+    payments_by_debt = defaultdict(list)
+    for p in all_payments:
+        payments_by_debt[p['debt_id']].append(p)
+
+    # Compute balances
+    for debt in debt_list:
+        debt_payments = payments_by_debt.get(debt['id'], [])
+        total_paid = sum(float(p['amount']) for p in debt_payments)
+        
+        amount_to_be_paid = float(debt['amount_to_be_paid']) if debt['amount_to_be_paid'] else 0.0
+        balance = amount_to_be_paid - total_paid
+
+        debt['payments'] = debt_payments
+        debt['amount_paid'] = total_paid
+        debt['balance'] = balance
+
+
     gas_name = ''
     if gas_id:
         cur.execute("SELECT gas_name FROM gas_table WHERE gas_id = %s", (gas_id,))
         row = cur.fetchone()
-        gas_name = row[0] if row else ''
+        gas_name = row['gas_name'] if row else ''
 
     cur.close()
     conn.close()
-    return render_template('add_gas_debt.html', gas_id=gas_id,debt_list=debt_list ,gas_name=gas_name)
+    return render_template('add_gas_debt.html', gas_id=gas_id, debt_list=debt_list, gas_name=gas_name)
+
 @app.route('/add-gas', methods=['GET', 'POST'])
 def add_gas():
     conn = get_connection()
