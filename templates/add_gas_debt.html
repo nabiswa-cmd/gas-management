@@ -19,16 +19,32 @@
 </head>
 <body>
     <h1>Add Gas Debt</h1>
+       {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div>
+      {% for category, message in messages %}
+        <div style="padding: 10px; margin-bottom: 10px; border-radius: 5px;
+                    {% if category == 'success' %}
+                      background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;
+                    {% elif category == 'error' %}
+                      background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                    {% else %}
+                      background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+                    {% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
     <form action="/add-gas-debt?gas_id={{ gas_id }}" method="post" enctype="multipart/form-data">
         <label for="gas_name">Gas:</label>
         <input type="text" id="gas_name" name="gas_name" value="{{ gas_name }}" readonly>
         <input type="hidden" name="gas_id" value="{{ gas_id }}">
         <br><br>
 
-        <label for="amount_paid">Amount Paid:</label>
-        <input type="number" step="0.01" name="amount_paid" required>
-        <br><br>
-
+        
         <label for="amount_to_be_paid">Amount To Be Paid:</label>
         <input type="number" step="0.01" name="amount_to_be_paid" required>
         <br><br>
@@ -72,7 +88,7 @@
         <button type="submit">Submit Gas Debt</button>
     </form>
 <form method="get" action="/gas-debt" style="max-width: 800px; margin: auto; margin-top: 40px;">
-        <input type="text" name="search" placeholder="Search by customer or gas name" style="width: 70%; padding: 8px; border-radius: 5px; border: 1px solid #ccc;">
+        <input type="text" value="{{ request.args.get('search', '') }}" name="search" placeholder="Search by customer or gas name" style="width: 70%; padding: 8px; border-radius: 5px; border: 1px solid #ccc;">
         <button type="submit" style="padding: 8px; border-radius: 5px; background: #333; color: white;">Search</button>
     </form>
 
@@ -93,7 +109,9 @@
         </thead>
         <tbody>
             {% for debt in debt_list %}
-            {% set balance = (debt.amount_to_be_paid or 0) - (debt.amount_paid or 0) %}
+           {% set balance = debt['amount_to_be_paid'] | float - debt['amount_paid'] | float %}
+
+
             <tr>
                 <td>{{ debt.gas_name }}</td>
                 <td>{{ debt.customer_name }}</td>
@@ -121,9 +139,11 @@
                     <strong>Payments:</strong>
                     {% if debt.payments %}
                         <ul class="small-text">
-                            {% for payment in debt.payments %}
-                                <li>{{ payment.amount }} on {{ payment.date }}</li>
-                            {% endfor %}
+                             {% for payment in debt.payments %}
+                    <li>{{ payment.amount }} on 
+                        {{ payment.payment_date.strftime('%Y-%m-%d') if payment.payment_date else '' }}
+                    </li>
+                {% endfor %}
                         </ul>
                     {% else %}
                         <span class="small-text">No payments yet</span>
@@ -131,9 +151,24 @@
                     
                     <!-- Add new payment -->
                     <form action="/add-payment/{{ debt.id }}" method="post" style="margin-top:10px;">
-                        <input type="number" name="new_payment" step="0.01" placeholder="Add Payment Amount">
-                        <button type="submit">Add Payment</button>
-                    </form>
+            <input type="number" name="payment_amount" step="0.01" placeholder="Add Payment Amount" 
+                   {% if debt.balance == 0 %} disabled {% endif %} required>
+            <button type="submit" 
+                    {% if debt.balance == 0 %} disabled {% endif %}>
+                Add Payment
+            </button>
+            
+        </form>
+       <form action="/undo-payment/{{ debt.id }}" method="post" style="display:inline;">
+    <button type="submit" 
+            {% if debt.balance == 0 %} disabled {% endif %} 
+            onclick="return confirm('Undo last payment?')">
+        Undo Last Payment
+    </button>
+</form>
+
+
+
                 </td>
             </tr>
             {% endfor %}

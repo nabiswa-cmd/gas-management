@@ -51,19 +51,20 @@ try:
     # Create gas_debts
     cur.execute("""
         CREATE TABLE IF NOT EXISTS gas_debts (
-            id SERIAL PRIMARY KEY,
-            gas_id INTEGER REFERENCES gas_table(gas_id),
-            amount_paid NUMERIC(10,2),
-            amount_to_be_paid NUMERIC(10,2),
-            date_to_be_paid DATE,
-            authorized_by TEXT CHECK (authorized_by IN ('mama done', 'baba done')),
-            empty_cylinder_given BOOLEAN DEFAULT FALSE,
-            customer_name TEXT,
-            customer_phone TEXT,
-            customer_address TEXT,
-            time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            customer_picture TEXT
-        );
+    id SERIAL PRIMARY KEY,
+    gas_id INTEGER REFERENCES gas_table(gas_id),
+    amount_paid NUMERIC(10,2) DEFAULT 0.00,  -- Set default value to 0
+    amount_to_be_paid NUMERIC(10,2),
+    date_to_be_paid DATE,
+    authorized_by TEXT CHECK (authorized_by IN ('mama done', 'baba done')),
+    empty_cylinder_given BOOLEAN DEFAULT FALSE,
+    customer_name TEXT,
+    customer_phone TEXT,
+    customer_address TEXT,
+    time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    customer_picture TEXT
+);
+
     """)
 
     # Create gas_debt_payments

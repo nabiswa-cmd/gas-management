@@ -100,6 +100,8 @@
     <input type="number" id="filled_cylinders" name="filled_cylinders" min="0" required>
 
     <button type="submit">Add Gas</button>
+    <a href="{{ url_for('dashboard') }}" class="back-link">Back to Dashboard</a>
+
 </form>
 
 
@@ -125,7 +127,6 @@
     </tbody>
 </table>
 
-<a href="{{ url_for('dashboard') }}" class="back-link">Back to Dashboard</a>
 
 </body>
 </html>
