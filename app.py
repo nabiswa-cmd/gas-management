@@ -198,7 +198,7 @@ def collect_prepaid(prepaid_id):
                 """, (gas_id,))
 
                 # 4. Handle empty_given logic
-                checkbox_checked = request.form.get("empty_checkbox") == "on"
+                checkbox_checked = request.form.get("empty_given", "").lower() in ["true", "on", "1"]
 
                 if not empty_given:  # If empty wasn't given initially
                     if checkbox_checked:
