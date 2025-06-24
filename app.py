@@ -1038,7 +1038,6 @@ def add_stock_out():
 
     flash("Stock out recorded successfully.", "success")
     return redirect(url_for('stock_out'))
-
 @app.route('/return-stock/<int:stock_id>', methods=['POST'])
 def return_stock(stock_id):
     returned_state = request.form.get('returned_cylinder_state')
@@ -1049,8 +1048,13 @@ def return_stock(stock_id):
     conn = get_connection()
     cur = conn.cursor()
 
-    # Get original stock out record info
-    cur.execute("SELECT gas_id FROM stock_out WHERE id = %s", (stock_id,))
+    # ✅ Get stock out record by stock_id
+    cur.execute("""
+        SELECT id, gas_id, cylinder_state, destination_type, destination_value, time_out
+        FROM stock_out
+        WHERE id = %s
+    """, (stock_id,))
+    
     record = cur.fetchone()
     if not record:
         flash('Record not found.', 'error')
@@ -1058,18 +1062,46 @@ def return_stock(stock_id):
         conn.close()
         return redirect(url_for('stock_out'))
 
-    gas_id = record[0]
+    # ✅ Unpack stock_out record
+    _, gas_id, original_state, destination_type, destination_value, _ = record
+    display_name = destination_value  # Default note value
 
-    # Insert into stock_change with returned cylinder state
+    # ✅ If destination is delivery, fetch delivery username
+    if destination_type == 'delivery':
+        cur.execute("SELECT username FROM users WHERE user_id = %s", (destination_value,))
+    result = cur.fetchone()
+    if result:
+        display_name = result[0]  # Use name instead of ID
+    else:
+        display_name = f"Unknown delivery (ID: {destination_value})"
+
+
+    # ✅ If it's a delivery return (from filled → empty), redirect to payment
+    if destination_type == 'delivery' and original_state == 'filled' and returned_state == 'empty':
+        session['delivery_return_info'] = {
+            'gas_id': gas_id,
+            'stock_id': stock_id,
+            'delivery_id': destination_value  # Still needed for later use
+        }
+        cur.close()
+        conn.close()
+        return redirect(url_for('record_delivery_sale'))
+
+    # ✅ Log return in stock_change
     cur.execute("""
-        INSERT INTO stock_change (gas_id, cylinder_state, returned_to)
-        VALUES (%s, %s, %s)
-    """, (gas_id, returned_state, 'stock'))
+        INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+        VALUES (%s, %s, %s, %s)
+    """, (
+        gas_id,
+        f"return_{returned_state}",
+        1,
+        f"Returned from {destination_type}: {display_name}"
+    ))
 
-    # Delete from stock_out
+    # ✅ Delete stock_out record
     cur.execute("DELETE FROM stock_out WHERE id = %s", (stock_id,))
 
-    # Update gas_table counts based on returned state
+    # ✅ Update cylinder count
     if returned_state == 'empty':
         cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders + 1 WHERE gas_id = %s", (gas_id,))
     else:
@@ -1079,9 +1111,8 @@ def return_stock(stock_id):
     cur.close()
     conn.close()
 
-    flash('Gas returned successfully!', 'success')
+    flash("Gas returned successfully!", "success")
     return redirect(url_for('stock_out'))
-
 
 @app.route("/delete-sale/<int:sale_id>")
 def delete_sale(sale_id):
@@ -1130,6 +1161,61 @@ def delete_sale(sale_id):
     except Exception as e:
         return f"Error deleting sale: {e}"
 
+@app.route('/record-delivery-sale', methods=['GET', 'POST'])
+def record_delivery_sale():
+    info = session.get('delivery_return_info')
+    if not info:
+        flash("No delivery return info found in session.", "error")
+        return redirect(url_for('stock_out'))
+
+    if request.method == 'POST':
+        amount_cash = request.form.get('amount_paid_cash')
+        amount_till = request.form.get('amount_paid_till')
+
+        try:
+            amount_cash = float(amount_cash) if amount_cash else 0
+            amount_till = float(amount_till) if amount_till else 0
+        except ValueError:
+            flash("Enter valid numeric values for payment.", "error")
+            return redirect(url_for('record_delivery_sale'))
+
+        gas_id = info['gas_id']
+        stock_id = info['stock_id']
+        delivery_id = info['delivery_id']
+
+        conn = get_connection()
+        cur = conn.cursor()
+
+        # ✅ Insert into sales_table
+        cur.execute("""
+            INSERT INTO sales_table (
+                gas_id, amount_paid_cash, amount_paid_till,
+                source_external, complete_sale
+            ) VALUES (%s, %s, %s, TRUE, TRUE)
+        """, (gas_id, amount_cash, amount_till))
+
+        # ✅ Record in stock_change (return from delivery)
+        cur.execute("""
+            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+            VALUES (%s, %s, %s, %s)
+        """, (gas_id, "return_empty", 1, f"Returned from delivery ID: {delivery_id}"))
+
+        # ✅ Delete from stock_out
+        cur.execute("DELETE FROM stock_out WHERE id = %s", (stock_id,))
+
+        # ✅ Increase empty_cylinders
+        cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders + 1 WHERE gas_id = %s", (gas_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        session.pop('delivery_return_info', None)  # ✅ Clear session after done
+        flash("Delivery return and sale recorded successfully.", "success")
+        return redirect(url_for('stock_out'))
+
+    # If GET request, show form
+    return render_template("record_delivery_sale.html")
 
 
 
