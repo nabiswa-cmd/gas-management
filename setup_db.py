@@ -146,3 +146,5 @@ except Exception as e:
 finally:
     if 'conn' in locals():
         conn.close()
+
+
