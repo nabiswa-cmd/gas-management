@@ -16,7 +16,18 @@ try:
             total_cylinders NUMERIC(10,2) GENERATED ALWAYS AS (empty_cylinders + filled_cylinders) STORED
         );
     """)
-
+    cur.execute("""CREATE TABLE IF NOT EXISTS prepaid_sales (
+    id SERIAL PRIMARY KEY,
+    gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT,
+    customer_address TEXT,
+    empty_given BOOLEAN DEFAULT FALSE,
+    customer_picture TEXT, -- path or image URL
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+""")
+        
     # Create stock_out
     cur.execute("""
         CREATE TABLE IF NOT EXISTS stock_out (

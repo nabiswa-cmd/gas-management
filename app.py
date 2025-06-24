@@ -44,6 +44,157 @@ def dashboard():
         return render_template('dashboard.html', username=session['username'])
     else:
         return redirect(url_for('home'))
+from flask import request, redirect, url_for, render_template
+from datetime import datetime
+@app.route('/prepaid-form')
+def Prepaidform():
+    gas_id = request.args.get("gas_id", type=int)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT gas_id, gas_name FROM gas_table")
+            gases = cur.fetchall()
+
+    return render_template("Prepaidform.html", gases=gases, selected_gas_id=gas_id)
+@app.route("/prepaid-list")
+def prepaid_list():
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ps.id, ps.customer_name, ps.empty_given, ps.customer_picture, 
+                           g.gas_name
+                    FROM prepaid_sales ps
+                    JOIN gas_table g ON ps.gas_id = g.gas_id
+                    ORDER BY ps.created_at DESC;
+                """)
+                rows = cur.fetchall()
+
+                pending_prepaid = []
+                for row in rows:
+                    pending_prepaid.append({
+                        "id": row[0],
+                        "customer_name": row[1],
+                        "empty_given": row[2],
+                        "customer_picture": row[3],
+                        "gas_name": row[4] or "Unknown"
+                    })
+
+        return render_template("Prepaidlist.html", pending_prepaid=pending_prepaid)
+        
+
+    except Exception as e:
+        return f"Error loading prepaid list: {e}"
+        
+
+@app.route('/record-sale-and-open-prepay', methods=['POST'])
+def record_sale_and_open_prepay():
+    gas_id = request.args.get("gas_id", type=int)
+    amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
+    amount_paid_till = float(request.form.get("amount_paid_till", 0))
+
+    selected_source = request.form.get("source", "customer")
+    source_kipsongo_pioneer = selected_source == "kipsongo_pioneer"
+    source_mama_pam = selected_source == "mama_pam"
+    source_external = selected_source == "external"
+
+    sale_type = request.form.get("sale_type")
+    complete_sale = sale_type == "complete_sale"
+    empty_not_given = sale_type == "empty_not_given"
+    exchange_cylinder = sale_type == "exchange_cylinder"
+
+    time_sold = datetime.now()
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO sales_table (
+                        gas_id, amount_paid_cash, amount_paid_till,
+                        source_kipsongo_pioneer, source_mama_pam, source_external,
+                        complete_sale, empty_not_given, exchange_cylinder, time_sold
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    gas_id, amount_paid_cash, amount_paid_till,
+                    source_kipsongo_pioneer, source_mama_pam, source_external,
+                    complete_sale, empty_not_given, exchange_cylinder, time_sold
+                ))
+                conn.commit()
+
+        return redirect(url_for('Prepaidform', gas_id=gas_id))
+
+    except Exception as e:
+        return f"Error: {e}", 500
+
+
+@app.route('/submit-prepaid-sale', methods=['POST'])
+def submit_prepaid_sale():
+    customer_name = request.form.get('customer_name')
+    customer_phone = request.form.get('customer_phone')
+    customer_address = request.form.get('customer_address')
+    gas_id = request.form.get('gas_id')
+    empty_given = 'empty_given' in request.form
+    picture_file = request.files.get('customer_picture')
+
+    picture_path = ''
+    if picture_file:
+        filename = secure_filename(picture_file.filename)
+        picture_path = os.path.join('static/uploads', filename)
+        picture_file.save(picture_path)
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO prepaid_sales (
+                        gas_id, customer_name, customer_phone, customer_address,
+                        empty_given, customer_picture
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                """, (gas_id, customer_name, customer_phone, customer_address, empty_given, picture_path))
+
+                if empty_given:
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders + 1 WHERE gas_id = %s", (gas_id,))
+
+            conn.commit()
+        flash('Prepaid sale recorded successfully', 'success')
+    except Exception as e:
+        flash(f"Error saving prepaid record: {e}", 'error')
+
+    return redirect(url_for('sales'))
+@app.route('/collect-prepaid/<int:prepaid_id>', methods=['POST'])
+def collect_prepaid(prepaid_id):
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM prepaid_sales WHERE id = %s", (prepaid_id,))
+                record = cur.fetchone()
+                if not record:
+                    flash("Record not found", "error")
+                    return redirect(url_for('sales'))
+
+                gas_id = record['gas_id']
+                empty_given = record['empty_given']
+
+                cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+
+                if not empty_given:
+                    cur.execute("""
+                        INSERT INTO stock_out (gas_id, cylinder_state, destination_type, destination_value)
+                        VALUES (%s, 'filled', 'customer', %s)
+                    """, (gas_id, record['customer_name']))
+                else :
+                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+
+
+
+                cur.execute("DELETE FROM prepaid_sales WHERE id = %s", (prepaid_id,))
+            conn.commit()
+        flash("Gas collected successfully", "success")
+    except Exception as e:
+        flash(f"Collection failed: {e}", "error")
+
+    return redirect(url_for('sales'))
+
     
 @app.route('/undo-payment/<int:debt_id>', methods=['POST'])
 def undo_payment(debt_id):
@@ -84,110 +235,77 @@ def undo_payment(debt_id):
 
     return redirect(url_for('add_gas_debt'))
 
+
+
 @app.route('/add-payment/<int:debt_id>', methods=['POST'])
 def add_payment(debt_id):
-    amount = float(request.form['payment_amount'])
-
     try:
+        amount = float(request.form['payment_amount'])
+
         with get_connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 # 1. Insert payment
                 cur.execute("""
                     INSERT INTO gas_debt_payments (debt_id, amount, payment_date)
                     VALUES (%s, %s, NOW())
                 """, (debt_id, amount))
 
-                # 2. Update gas_debts table
+                # 2. Update amount_paid
                 cur.execute("""
                     UPDATE gas_debts
                     SET amount_paid = amount_paid + %s
                     WHERE id = %s
                 """, (amount, debt_id))
 
+                # 3. Fetch updated debt info
+                cur.execute("""
+                    SELECT gas_id, amount_paid, amount_to_be_paid, cleared
+                    FROM gas_debts
+                    WHERE id = %s
+                """, (debt_id,))
+                debt = cur.fetchone()
+
+                if not debt:
+                    raise Exception("Debt record not found.")
+
+                balance = float(debt['amount_to_be_paid']) - float(debt['amount_paid'])
+
+                # 4. If fully paid and not yet cleared, record as a sale
+                if balance <= 0 and not debt['cleared']:
+                    cur.execute("""
+                        INSERT INTO sales_table (
+                            gas_id,
+                            sale_date,
+                            amount_paid_cash,
+                            amount_paid_till,
+                            complete_sale,
+                            source_kipsongo_pioneer,
+                            source_mama_pam,
+                            source_external,
+                            empty_not_given,
+                            exchange_cylinder,
+                            from_debt
+                        ) VALUES (%s, NOW(), %s, 0, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE)
+                    """, (
+                        debt['gas_id'],
+                        float(debt['amount_to_be_paid'])
+                    ))
+
+                    # 5. Mark the debt as cleared
+                    cur.execute("""
+                        UPDATE gas_debts SET cleared = TRUE WHERE id = %s
+                    """, (debt_id,))
+
             conn.commit()
 
-        # Redirect back to the gas debt page for this gas
+        flash("Payment added successfully!", "success")
         return redirect(url_for('add_gas_debt'))
 
     except Exception as e:
-        return f"Error: {e}"
+        print("Error in add_payment:", e)
+        flash(f"Error processing payment: {e}", "error")
+        return redirect(url_for('add_gas_debt'))
 
-@app.route('/add-gas-debt-payment', methods=['POST'])
-def add_gas_debt_payment():
-    try:
-        data = request.get_json()
-        debt_id = data['debt_id']
-        amount = float(data['payment_amount'])
-
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-        cur = conn.cursor()
-
-        # Insert the payment
-        cur.execute("""
-            INSERT INTO gas_debt_payments (debt_id, amount, payment_date)
-            VALUES (%s, %s, NOW())
-        """, (debt_id, amount))
-
-        # Total paid so far
-        cur.execute("""
-            SELECT COALESCE(SUM(amount), 0) AS total_paid
-            FROM gas_debt_payments
-            WHERE debt_id = %s
-        """, (debt_id,))
-        total_paid = cur.fetchone()['total_paid']
-
-        # Get original debt info
-        cur.execute("""
-            SELECT gas_id, amount_to_be_paid, cleared
-            FROM gas_debts
-            WHERE id = %s
-        """, (debt_id,))
-        debt = cur.fetchone()
-
-        if not debt:
-            raise Exception("Debt not found.")
-
-        gas_id = debt['gas_id']
-        amount_to_be_paid = float(debt['amount_to_be_paid'])
-        cleared = debt['cleared']
-
-        balance = amount_to_be_paid - total_paid
-
-        # If fully paid and not yet cleared, record sale and mark as cleared
-        if balance <= 0 and not cleared:
-            cur.execute("""
-            INSERT INTO sales_table (
-            gas_id,
-            sale_date,
-            amount_paid_cash,
-            amount_paid_till,
-            complete_sale,
-            source_kipsongo_pioneer,
-            source_mama_pam,
-            source_external,
-            empty_not_given,
-            exchange_cylinder,
-            from_debt
-        ) VALUES (%s, NOW(), %s, 0, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE)
-    """, (gas_id, amount_to_be_paid))
-
-        cur.execute("""
-        UPDATE gas_debts SET cleared = TRUE WHERE id = %s
-    """, (debt_id,))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'total_paid': float(total_paid),
-            'balance': float(balance)
-        })
-    except Exception as e:
-        print("Error processing payment:", e)
-        return jsonify({'success': False, 'error': str(e)}), 500
-    
 
 
 
@@ -467,58 +585,76 @@ def add_gas():
     return render_template('gas_form.html', gases=gases)
 
 # --- SALES PAGE AND SUBMISSION ---
-
-
+from collections import defaultdict
+from flask import render_template
 
 @app.route("/sales", methods=["GET"])
 def sales():
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Fetch all recent sales (latest 50)
+                # Fetch all recent sales (latest 50) including source fields
                 cur.execute("""
-                    SELECT s.sale_id, g.gas_name, s.amount_paid_cash, s.amount_paid_till, 
-                           s.time_sold::date AS sale_date, s.time_sold::time
+                    SELECT 
+                        s.sale_id, 
+                        g.gas_name, 
+                        s.amount_paid_cash, 
+                        s.amount_paid_till, 
+                        s.time_sold::date AS sale_date, 
+                        s.time_sold::time,
+                        s.from_debt,
+                        s.source_mama_pam,
+                        s.source_external,
+                        s.source_kipsongo_pioneer
                     FROM sales_table s
                     JOIN gas_table g ON s.gas_id = g.gas_id
-                    ORDER BY s.time_sold DESC LIMIT 50;
+                    ORDER BY s.time_sold DESC 
+                    LIMIT 50;
                 """)
                 rows = cur.fetchall()
 
                 grouped_sales_dict = defaultdict(list)
                 for sale in rows:
-                    sale_id, gas_name, cash, till, sale_date, time_only = sale
+                    (sale_id, gas_name, cash, till, sale_date, time_only,
+                     from_debt, source_mama_pam, source_external, source_kipsongo_pioneer) = sale
+
                     grouped_sales_dict[sale_date].append({
                         "id": sale_id,
                         "gas": gas_name,
                         "cash": float(cash),
                         "till": float(till),
-                        "time": time_only.strftime("%I:%M %p")
+                        "time": time_only.strftime("%I:%M %p"),
+                        "from_debt": from_debt,
+                        "source_mama_pam": source_mama_pam,
+                        "source_external": source_external,
+                        "source_kipsongo_pioneer": source_kipsongo_pioneer
                     })
 
-                # Build final grouped structure
+                # Final structure for rendering
                 grouped_sales = []
                 for raw_date, sales_list in grouped_sales_dict.items():
                     grouped_sales.append({
-                        "date": raw_date,  # raw date for sorting
-                        "date_str": raw_date.strftime("%A, %d %B %Y"),  # formatted string for display
+                        "date": raw_date,
+                        "date_str": raw_date.strftime("%A, %d %B %Y"),
                         "sales": sales_list,
                         "total_gas": len(sales_list)
                     })
 
-                # Sort by newest date (descending)
                 grouped_sales.sort(key=lambda x: x["date"], reverse=True)
 
-                # Load gas list
-                cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id ASC;")
+                # Fetch gas dropdown list
+                cur.execute("""
+                    SELECT gas_id, gas_name, empty_cylinders, filled_cylinders
+                    FROM gas_table 
+                    ORDER BY gas_id ASC;
+                """)
                 gases = cur.fetchall()
-                
-
 
         return render_template("sales.html", gases=gases, grouped_sales=grouped_sales)
 
     except Exception as e:
         return f"Error loading sales form: {e}"
+
 @app.route("/edit-sale/<int:sale_id>", methods=["GET", "POST"])
 def edit_sale(sale_id):
     try:
