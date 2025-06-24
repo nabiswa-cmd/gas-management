@@ -135,9 +135,7 @@
             <td data-label="Actions">
                     <button type="submit">Collected</button>
                 </form>
-                <form action="{{ url_for('delete_prepaid', prepaid_id=p.id) }}" method="post" style="display:inline;">
-                    <button type="submit" onclick="return confirm('Delete record?')">Delete</button>
-                </form>
+                
             </td>
         </tr>
         {% endfor %}
