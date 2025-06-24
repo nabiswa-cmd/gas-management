@@ -238,16 +238,15 @@ def view_logs():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT sc.id, g.gas_name, sc.action_type, sc.quantity_changed, sc.note, sc.time_changed
+                    SELECT sc.id, g.gas_name, sc.action, sc.quantity_change, sc.notes, sc.changed_at
                     FROM stock_change sc
                     JOIN gas_table g ON sc.gas_id = g.gas_id
-                    ORDER BY sc.time_changed DESC
+                    ORDER BY sc.changed_at DESC
                 """)
                 logs = cur.fetchall()
         return render_template("logs.html", logs=logs)
     except Exception as e:
         return f"Error fetching logs: {e}"
-
 
 @app.route('/undo-payment/<int:debt_id>', methods=['POST'])
 def undo_payment(debt_id):
