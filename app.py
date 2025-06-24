@@ -3,7 +3,6 @@ import psycopg2
 import psycopg2.extras  
 from datetime import datetime
 from collections import defaultdict
-from datetime import datetime
 from decimal import Decimal
 from psycopg2.extras import RealDictCursor
 
@@ -161,41 +160,93 @@ def submit_prepaid_sale():
         flash(f"Error saving prepaid record: {e}", 'error')
 
     return redirect(url_for('sales'))
-@app.route('/collect-prepaid/<int:prepaid_id>', methods=['POST'])
+
+
+@app.route("/collect-prepaid/<int:prepaid_id>", methods=["POST"])
 def collect_prepaid(prepaid_id):
     try:
         with get_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute("SELECT * FROM prepaid_sales WHERE id = %s", (prepaid_id,))
+            with conn.cursor() as cur:
+                # 1. Get prepaid record
+                cur.execute("SELECT gas_id, empty_given FROM prepaid_sales WHERE id = %s", (prepaid_id,))
                 record = cur.fetchone()
+
                 if not record:
-                    flash("Record not found", "error")
-                    return redirect(url_for('sales'))
+                    flash("❌ Prepaid record not found", "error")
+                    return redirect(url_for('prepaid_list'))
 
-                gas_id = record['gas_id']
-                empty_given = record['empty_given']
+                gas_id, empty_given = record
 
-                cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                # 2. Check gas availability
+                cur.execute("SELECT filled_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
+                gas_status = cur.fetchone()
 
-                if not empty_given:
-                    cur.execute("""
+                if not gas_status or gas_status[0] <= 0:
+                    flash("❌ No filled gas cylinders available for collection!", "error")
+                    return redirect(url_for('prepaid_list'))
+
+                # 3. Reduce filled by 1
+                cur.execute("""
+                    UPDATE gas_table SET filled_cylinders = filled_cylinders - 1
+                    WHERE gas_id = %s
+                """, (gas_id,))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s, 'decrease_filled', -1, 'Collected prepaid sale')
+                """, (gas_id,))
+
+                # 4. Handle empty_given logic
+                checkbox_checked = request.form.get("empty_checkbox") == "on"
+
+                if not empty_given:  # If empty wasn't given initially
+                    if checkbox_checked:
+                        # Now empty has been given
+                        cur.execute("""
+                            UPDATE gas_table SET empty_cylinders = empty_cylinders + 1
+                            WHERE gas_id = %s
+                        """, (gas_id,))
+                        cur.execute("""
+                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                            VALUES (%s, 'increase_empty', 1, 'Empty received at collection')
+                        """, (gas_id,))
+                    else:
+                        # No empty given still → record stock_out
+                        cur.execute("""
                         INSERT INTO stock_out (gas_id, cylinder_state, destination_type, destination_value)
                         VALUES (%s, 'filled', 'customer', %s)
-                    """, (gas_id, record['customer_name']))
-                else :
-                    cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders - 1 WHERE gas_id = %s", (gas_id,))
+                    """, (gas_id, ['customer_name']))
+                        cur.execute("""
+                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                            VALUES (%s, 'stock_out', -1, 'Prepaid collection without empty')
+                        """, (gas_id,))
 
-
-
+                # 5. Delete from prepaid_sales
                 cur.execute("DELETE FROM prepaid_sales WHERE id = %s", (prepaid_id,))
-            conn.commit()
-        flash("Gas collected successfully", "success")
+
+                conn.commit()
+                flash("✅ Collection completed successfully.", "success")
+                return redirect(url_for('prepaid_list'))
+
     except Exception as e:
-        flash(f"Collection failed: {e}", "error")
+        flash(f"❌ Error during collection: {e}", "error")
+        return redirect(url_for('prepaid_list'))
+@app.route('/logs')
+def view_logs():
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT sc.id, g.gas_name, sc.action_type, sc.quantity_changed, sc.note, sc.time_changed
+                    FROM stock_change sc
+                    JOIN gas_table g ON sc.gas_id = g.gas_id
+                    ORDER BY sc.time_changed DESC
+                """)
+                logs = cur.fetchall()
+        return render_template("logs.html", logs=logs)
+    except Exception as e:
+        return f"Error fetching logs: {e}"
 
-    return redirect(url_for('sales'))
 
-    
 @app.route('/undo-payment/<int:debt_id>', methods=['POST'])
 def undo_payment(debt_id):
     try:

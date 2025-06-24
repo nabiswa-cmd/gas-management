@@ -111,23 +111,31 @@
             <th>Picture</th>
             <th>Actions</th>
         </tr>
+
         {% for p in pending_prepaid %}
         <tr>
             <td data-label="Customer">{{ p.customer_name }}</td>
             <td data-label="Gas">{{ p.gas_name }}</td>
             <td data-label="Empty Given">
-                <input type="checkbox" {% if p.empty_given %}checked disabled{% endif %}>
+                <form action="{{ url_for('collect_prepaid', prepaid_id=p.id) }}" method="post" style="display:inline;">
+                    {% if p.empty_given %}
+                        <input type="checkbox" checked disabled>
+                        <input type="hidden" name="empty_given" value="true">
+                    {% else %}
+                        <input type="checkbox" name="empty_given" value="true">
+                    {% endif %}
             </td>
             <td data-label="Picture">
                 {% if p.customer_picture %}
                     <img src="{{ url_for('static', filename=p.customer_picture.split('static/')[-1]) }}" width="80">
+                {% else %}
+                    No picture
                 {% endif %}
             </td>
             <td data-label="Actions">
-                <form action="/collect-prepaid/{{ p.id }}" method="post" style="display:inline;">
                     <button type="submit">Collected</button>
                 </form>
-                <form action="/delete-prepaid/{{ p.id }}" method="post" style="display:inline;">
+                <form action="{{ url_for('delete_prepaid', prepaid_id=p.id) }}" method="post" style="display:inline;">
                     <button type="submit" onclick="return confirm('Delete record?')">Delete</button>
                 </form>
             </td>

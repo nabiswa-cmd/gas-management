@@ -119,7 +119,11 @@
     <button style="padding: 10px 20px; font-size: 16px; background-color: #28a745; color: white; border: none; border-radius: 5px;">
         ➕ Stock Out Gas
     </button>
-</a>
+    <form action="/prepaid-list" method="get">
+        <button type="submit">Prepaid Record list</button>
+    </form>
+</a><a class="dashboard-link" href="{{ url_for('view_logs') }}">View Stock Logs</a>
+
 
 
         <a href="/external-u" class="card-btn"><i class="fas fa-truck"></i>External</a>
