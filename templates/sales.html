@@ -232,17 +232,64 @@ function handlePrepayLinkClick() {
             <input type="radio" name="source" value="mama_pam"> Mama Pam<br>
             <input type="radio" name="source" value="external"> External<br>
             <input type="radio" name="source" value="customer" checked> Customer<br>
-            <button type="submit">Submit Sale</button>
+            <button type="submit" name="action" value="normal">Submit Sale</button>
         </fieldset>
 
-        <fieldset>
-            <legend>Special event during sale;</legend>
-            <label><input type="radio" name="sale_type" value="complete_sale"> Complete Sale</label><br>
-            <label><input type="radio" name="sale_type" value="empty_not_given"> Empty Not Given</label><br>
-            <label><input type="radio" name="sale_type" value="exchange_cylinder"> Exchange Cylinder</label><br>
-            <a class="button" href="">Special Submit sale</a>
-        </fieldset>
+          <!-- SPECIAL section -->
+    <fieldset>
+    <legend>Special event during sale:</legend>
 
+    <!-- radios -->
+    <label>
+        <input type="radio" name="sale_type" value="complete_sale"
+               onclick="toggleSpecialBoxes()"> Complete Sale
+    </label><br>
+
+    <label>
+        <input type="radio" name="sale_type" value="empty_not_given"
+               onclick="toggleSpecialBoxes()"> Empty Not Given
+    </label><!-- empty‑not‑given customer box -->
+    <div id="empty-box" style="display:none; margin-top:8px;">
+        <label>Names of customer who didnt return an empty(no empty returned):</label>
+        <input type="text" name="empty_customer" placeholder="e.g. Nabiswa James">
+    </div><br>
+
+
+    <label>
+        <input type="radio" name="sale_type" value="exchange_cylinder"
+               onclick="toggleSpecialBoxes()"> Exchange Cylinder
+    </label><br>
+    <!-- exchange cylinder mini‑form -->
+    <div id="exchange-box"
+         style="display:none; margin-top:8px; padding:8px; border:1px solid #ccc;">
+        <strong>Exchange Details</strong><br>
+
+        <label>Customer Name:</label>
+        <input type="text" name="exchange_customer" placeholder="e.g. Teddy Onyango"><br>
+        <label>Empty cylinder received from customer:</label>
+        <select name="gas_id_received">
+            {% for g in gases %}
+                <option value="{{ g[0] }}">{{ g[1] }}</option>
+            {% endfor %}
+        </select><br>
+
+    </div>
+     <!-- SUBMIT buttons -->
+    
+    <button type="submit" name="action" value="special" class="button">Special Submit Sale</button>
+
+</fieldset>
+
+<!-- small helper script -->
+<script>
+function toggleSpecialBoxes() {
+    const val = document.querySelector('input[name="sale_type"]:checked')?.value;
+    document.getElementById('empty-box').style.display    = (val === 'empty_not_given')   ? 'block' : 'none';
+    document.getElementById('exchange-box').style.display = (val === 'exchange_cylinder') ? 'block' : 'none';
+}
+</script>
+
+   
         <a class="dashboard-link" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
     </form>
 
@@ -344,6 +391,23 @@ function submitPrepay() {
     })
     .catch(error => alert("Error submitting prepay: " + error));
 }
+/* Show/hide Exchange box */
+function toggleExchangeBox(){
+    const radio = document.querySelector('input[name="sale_type"]:checked');
+    document.getElementById('exchange-box').style.display =
+        (radio && radio.value === 'exchange_cylinder') ? 'block' : 'none';
+}
+document.querySelectorAll('input[name="sale_type"]').forEach(r =>
+    r.addEventListener('change', toggleExchangeBox)
+);
+function toggleEmptyNotBox(show){
+    document.getElementById('empty-box').style.display = show ? 'block' : 'none';
+}
+document.querySelectorAll('input[name="sale_type"]').forEach(r =>
+    r.addEventListener('change', () =>
+        toggleEmptyNotBox(r.value === 'empty_not_given')
+    )
+);
 </script>
 
 

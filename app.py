@@ -57,6 +57,145 @@ def Prepaidform():
             gases = cur.fetchall()
 
     return render_template("Prepaidform.html", gases=gases, selected_gas_id=gas_id)
+
+# ─────────────────────────────────────────────────────────────
+#  GET  –  Supplier / Pricing Manager page
+#  URL  : /manage-pricing
+# ─────────────────────────────────────────────────────────────
+@app.route('/manage-pricing')
+def manage_pricing():
+    with get_connection() as conn, conn.cursor() as cur:
+
+        # 1. Suppliers → list of dicts
+        cur.execute("""
+            SELECT company_id, company_name
+            FROM   buying_company
+            ORDER  BY company_name
+        """)
+        companies = [
+            {"company_id": cid, "company_name": cname}
+            for cid, cname in cur.fetchall()
+        ]
+
+        # 2. Gas brands → list of dicts
+        cur.execute("""
+            SELECT gas_id, gas_name
+            FROM   gas_table
+            ORDER  BY gas_name
+        """)
+        gases = [
+            {"gas_id": gid, "gas_name": gname}
+            for gid, gname in cur.fetchall()
+        ]
+
+        # 3. Current price matrix → list of dicts
+        cur.execute("""
+            SELECT c.company_name,
+                   g.gas_name,
+                   COALESCE(p.refill_price,0),
+                   COALESCE(p.full_price,0),
+                   p.last_updated
+            FROM   company_gas_price p
+            JOIN   buying_company c ON p.company_id = c.company_id
+            JOIN   gas_table      g ON p.gas_id     = g.gas_id
+            ORDER  BY c.company_name, g.gas_name
+        """)
+        prices = [
+            {
+                "company_name": row[0],
+                "gas_name":     row[1],
+                "refill_price": float(row[2]),
+                "full_price":   float(row[3]),
+                "last_updated": row[4]
+            }
+            for row in cur.fetchall()
+        ]
+
+    return render_template(
+        "manage_pricing.html",
+        companies=companies,
+        gases=gases,
+        prices=prices
+    )
+
+# ─────────────────────────────────────────────────────────────
+#  POST  –  Add new supplier / station
+# ─────────────────────────────────────────────────────────────
+@app.route('/add-supplier', methods=['POST'])
+def add_supplier():
+    name = request.form['company_name'].strip()
+    with get_connection() as conn, conn.cursor() as cur:
+        try:
+            cur.execute("""
+                INSERT INTO buying_company (company_name)
+                VALUES (%s)
+                ON CONFLICT (company_name) DO NOTHING
+                RETURNING company_id
+            """, (name,))
+            cid = cur.fetchone()
+            if cid:
+                # auto‑create price rows for every gas brand
+                cur.execute("""
+                    INSERT INTO company_gas_price (company_id, gas_id)
+                    SELECT %s, gas_id FROM gas_table
+                    ON CONFLICT DO NOTHING
+                """, (cid[0],))
+            conn.commit()
+            flash("Supplier added.", "success")
+        except Exception as e:
+            conn.rollback()
+            flash(str(e), "error")
+    return redirect(url_for('manage_pricing'))
+
+@app.route('/set-price', methods=['POST'])
+def set_price():
+    comp_id = int(request.form['company_id'])
+    gid_raw = request.form['gas_id']            # 'all_below', 'all_above', or number
+    refill  = float(request.form['refill_price'] or 0)
+    full    = float(request.form['full_price']   or 0)
+
+    with get_connection() as conn, conn.cursor() as cur:
+
+        # — bulk options —
+        if gid_raw == "all_below":
+            cur.execute("""
+                UPDATE company_gas_price
+                   SET refill_price = %s,
+                       full_price   = %s,
+                       last_updated = NOW()
+                 WHERE company_id = %s
+                   AND gas_id     < 25
+            """, (refill, full, comp_id))
+
+        elif gid_raw == "all_above":
+            cur.execute("""
+                UPDATE company_gas_price
+                   SET refill_price = %s,
+                       full_price   = %s,
+                       last_updated = NOW()
+                 WHERE company_id = %s
+                   AND gas_id     >= 25
+            """, (refill, full, comp_id))
+
+        # — single brand —
+        else:
+            gid = int(gid_raw)
+            cur.execute("""
+                INSERT INTO company_gas_price
+                      (company_id, gas_id, refill_price, full_price)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (company_id, gas_id) DO UPDATE
+                  SET refill_price = %s,
+                      full_price   = %s,
+                      last_updated = NOW()
+            """, (comp_id, gid, refill, full, refill, full))
+
+        conn.commit()
+
+    flash("Price saved.", "success")
+    return redirect(url_for('manage_pricing'))
+
+
 @app.route("/prepaid-list")
 def prepaid_list():
     try:
@@ -505,12 +644,22 @@ def add_gas_debt():
                         empty_cylinders = empty_cylinders + 1
                     WHERE gas_id = %s
                 """, (gas_id,))
+                cur.execute("""
+                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                            VALUES (%s, 'filled decrease while empty increase', 0,  %s)
+                        """), (gas_id, f"gas collection without payment by '{customer_name}'")
+
             else:
                 cur.execute("""
                     UPDATE gas_table
                     SET filled_cylinders = filled_cylinders - 1
                     WHERE gas_id = %s
                 """, (gas_id,))
+                cur.execute("""
+                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                            VALUES (%s, 'filled decrease', -1,  %s)
+                        """, (gas_id, f"gas collection without payment no empty by '{customer_name}'"))
+
                 # Record gas going out in stock_out table
                 cur.execute("""
                     INSERT INTO stock_out (
@@ -519,6 +668,10 @@ def add_gas_debt():
                    """, (
         gas_id, 'filled', 'customer', customer_name
     ))
+                cur.execute("""
+                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                            VALUES (%s, 'stock change', -1, %s)
+                        """, (gas_id, f"gas collection without payment no empty by '{customer_name}'"))
 
             conn.commit()
             flash("Gas debt added successfully.", "success")
@@ -746,107 +899,144 @@ def edit_sale(sale_id):
 
     except Exception as e:
         return f"Error editing sale: {e}"
+from datetime import datetime
+# … plus your usual imports …
 
 @app.route('/submit-sale', methods=['POST'])
 def submit_sale():
     try:
         gas_id = int(request.form["gas_id"])
-        amount_paid_cash = float(request.form.get("amount_paid_cash", 0))
-        amount_paid_till = float(request.form.get("amount_paid_till", 0))
-        
+        cash   = float(request.form.get("amount_paid_cash", 0) or 0)
+        till   = float(request.form.get("amount_paid_till", 0) or 0)
+
         selected_source = request.form.get("source", "customer")
-        source_kipsongo_pioneer = selected_source == "kipsongo_pioneer"
-        source_mama_pam = selected_source == "mama_pam"
-        source_external = selected_source == "external"
+        src_kipsongo = selected_source == "kipsongo_pioneer"
+        src_mama     = selected_source == "mama_pam"
+        src_external = selected_source == "external"
+        source_selected = selected_source in ["kipsongo_pioneer", "mama_pam", "external"]
 
-        sale_type = request.form.get("sale_type")
+        sale_type        = request.form.get("sale_type")               # may be None
+        complete_sale    = sale_type == "complete_sale"
+        empty_not_given  = sale_type == "empty_not_given"
+        exchange_cyl     = sale_type == "exchange_cylinder"
 
-        complete_sale = sale_type == "complete_sale"
-        empty_not_given = sale_type == "empty_not_given"
-        exchange_cylinder = sale_type == "exchange_cylinder"
+        # extra fields when special
+        empty_customer    = request.form.get("empty_customer")      if empty_not_given else None
+        exch_customer     = request.form.get("exchange_customer")   if exchange_cyl    else None
+        gas_id_received   = request.form.get("gas_id_received")     if exchange_cyl    else None
+        exch_note         = request.form.get("exchange_note") or ""
 
         time_sold = datetime.now()
 
-        source_selected = selected_source in ["kipsongo_pioneer", "mama_pam", "external"]
+        with get_connection() as conn, conn.cursor() as cur:
+            # Stock check
+            cur.execute("SELECT filled_cylinders FROM gas_table WHERE gas_id=%s",(gas_id,))
+            row = cur.fetchone()
+            if not row:
+                flash("Gas record not found.","error"); return redirect("/sales")
+            filled = row[0]
+            if filled == 0 and not source_selected:
+                flash("No filled gas available in Ukweli store.","error"); return redirect("/sales")
 
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                # Get current stock
-                cur.execute("SELECT filled_cylinders, empty_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
-                row = cur.fetchone()
-
-                if not row:
-                    flash("Gas record not found.", "error")
-                    return redirect("/sales")
-
-                filled, empty = row
-
-                # If no source is selected and filled cylinders are zero, prevent sale
-                if filled == 0 and not source_selected:
-                    flash("No filled  gas available in ukweli store confirm in other station.", "error")
-                    return redirect("/sales")
-
-                # Insert into sales_table
-                cur.execute("""
-                    INSERT INTO sales_table (
-                        gas_id, amount_paid_cash, amount_paid_till,
-                        source_kipsongo_pioneer, source_mama_pam, source_external,
-                        complete_sale, empty_not_given, exchange_cylinder, time_sold
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
+            # Insert sale row
+            cur.execute("""
+                INSERT INTO sales_table (
                     gas_id, amount_paid_cash, amount_paid_till,
                     source_kipsongo_pioneer, source_mama_pam, source_external,
                     complete_sale, empty_not_given, exchange_cylinder, time_sold
-                ))
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                gas_id, cash, till,
+                src_kipsongo, src_mama, src_external,
+                complete_sale, empty_not_given, exchange_cyl, time_sold
+            ))
 
-                # Always increase empty cylinders by 1
+            # ───────── Stock movements ────────────────────────────────────
+            # 1. Decrease filled (only when cylinder leaves Ukweli directly)
+            if not source_selected:
+                cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders - 1 WHERE gas_id=%s",(gas_id,))
                 cur.execute("""
-                    UPDATE gas_table
-                    SET empty_cylinders = empty_cylinders + 1
-                    WHERE gas_id = %s
-                """, (gas_id,))
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'decrease_filled',-1,'Sale out')
+                """,(gas_id,))
 
-                # If no source is selected, also decrease filled cylinders by 1
-                if not source_selected:
+            # 2. Increase empty
+            if exchange_cyl:
+                target_empty_id = int(gas_id_received) if gas_id_received else gas_id
+                note_txt = f"Exchange empty from {exch_customer or 'customer'}: {exch_note}"
+                cur.execute("UPDATE gas_table SET empty_cylinders = empty_cylinders + 1 WHERE gas_id=%s",(target_empty_id,))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'increase_empty',1,%s)
+                """,(target_empty_id, note_txt))
+            else:
+    # Increase empty ONLY when the customer actually returned one
+                if not empty_not_given:            # ← skip when Empty‑Not‑Given
                     cur.execute("""
-                        UPDATE gas_table
-                        SET filled_cylinders = filled_cylinders - 1
-                        WHERE gas_id = %s
-                    """, (gas_id,))
-
-                # Update the specific source table
-                if source_kipsongo_pioneer:
+            UPDATE gas_table
+            SET empty_cylinders = empty_cylinders + 1
+            WHERE gas_id = %s
+        """, (gas_id,))
                     cur.execute("""
-                        INSERT INTO kipsongo_gas_in_ukweli (gas_id, number_of_gas)
-                        VALUES (%s, 1)
-                        ON CONFLICT (gas_id) DO UPDATE
-                        SET number_of_gas = kipsongo_gas_in_ukweli.number_of_gas + 1
-                    """, (gas_id,))
+            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+            VALUES (%s,'increase_empty',1,'Empty received')
+        """, (gas_id,))
 
-                elif source_mama_pam:
-                    cur.execute("""
-                        INSERT INTO mama_pam_gas_in_ukweli (gas_id, number_of_gas)
-                        VALUES (%s, 1)
-                        ON CONFLICT (gas_id) DO UPDATE
-                        SET number_of_gas = mama_pam_gas_in_ukweli.number_of_gas + 1
-                    """, (gas_id,))
+            # 3. Empty‑Not‑Given ➜ record in stock_out
+            if empty_not_given:
+                dest = empty_customer or "No name"
+                cur.execute("""
+                    INSERT INTO stock_out (gas_id,cylinder_state,destination_type,destination_value)
+                    VALUES (%s,'filled','customer',%s)
+                """,(gas_id,dest))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'stock_out',-1,'Filled taken w/out empty by '||%s)
+                """,(gas_id,dest))
 
-                elif source_external:
-                    cur.execute("""
-                        INSERT INTO external_gas_in_ukweli (gas_id, number_of_gas)
-                        VALUES (%s, 1)
-                        ON CONFLICT (gas_id) DO UPDATE
-                        SET number_of_gas = external_gas_in_ukweli.number_of_gas + 1
-                    """, (gas_id,))
+            # 4. Source tables (same as your original)
+            if src_kipsongo:
+                cur.execute("""
+                  INSERT INTO kipsongo_gas_in_ukweli (gas_id,number_of_gas)
+                  VALUES (%s,1)
+                  ON CONFLICT (gas_id) DO UPDATE
+                    SET number_of_gas = kipsongo_gas_in_ukweli.number_of_gas + 1
+                """,(gas_id,))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'stock_in',+1,'empty from kipsongo)
+                """,(gas_id,))
+            elif src_mama:
+                cur.execute("""
+                  INSERT INTO mama_pam_gas_in_ukweli (gas_id,number_of_gas)
+                  VALUES (%s,1)
+                  ON CONFLICT (gas_id) DO UPDATE
+                    SET number_of_gas = mama_pam_gas_in_ukweli.number_of_gas + 1
+                """,(gas_id,))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'stock_in',+1,'empty from mama pam)
+                """,(gas_id,))
+            elif src_external:
+                cur.execute("""
+                  INSERT INTO external_gas_in_ukweli (gas_id,number_of_gas)
+                  VALUES (%s,1)
+                  ON CONFLICT (gas_id) DO UPDATE
+                    SET number_of_gas = external_gas_in_ukweli.number_of_gas + 1
+                """,(gas_id,))
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s,'stock_in',+1,'empty from external place)
+                """,(gas_id,))
 
-                conn.commit()
-                flash("Sale recorded successfully.", "success")
+            conn.commit()
+            flash("Sale recorded successfully.","success")
 
     except Exception as e:
-        flash(f"Error processing sale: {str(e)}", "error")
-    selected_gas_id = request.form.get("gas_id")  # This might be None on GET
-    
+        flash(f"Error processing sale: {e}","error")
+
     return redirect("/sales")
+
 @app.route('/stock-out', methods=['GET', 'POST'])
 def stock_out():
     conn = get_connection()
@@ -1401,9 +1591,45 @@ def delete_kipsongo_gas(id):
 
 # --- EXTRA PAGES ---
 
-@app.route("/refill")
-def refill():
-    return render_template('refill.html')
+#  GET page
+@app.route('/refill')
+def refill_page():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_name;")
+        gases = cur.fetchall()
+    return render_template('refill.html', gases=gases)
+
+#  POST handler
+@app.route('/add-refill', methods=['POST'])
+def add_refill():
+    try:
+        gas_id     = int(request.form['gas_id'])
+        refill_qty = int(request.form['refill_qty'])
+
+        if refill_qty <= 0:
+            flash("Quantity must be positive","error"); return redirect(url_for('refill_page'))
+
+        with get_connection() as conn, conn.cursor() as cur:
+            # 1️⃣  Update stock (increase filled, decrease empty if you want)
+            cur.execute("""
+                UPDATE gas_table
+                SET filled_cylinders = filled_cylinders + %s
+                WHERE gas_id = %s
+            """,(refill_qty, gas_id))
+
+            # 2️⃣  Log in stock_change
+            cur.execute("""
+                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                VALUES (%s,'refill',%s,'Cylinders refilled')
+            """,(gas_id, refill_qty))
+
+            conn.commit()
+        flash("Refill recorded!","success")
+    except Exception as e:
+        flash(f"Error recording refill: {e}","error")
+
+    return redirect(url_for('refill_page'))
+
 @app.route("/gas-form")
 def gasform():
     conn = get_connection()          # Call the function to get connection

@@ -28,17 +28,7 @@ try:
 );
 """)
         
-    # Create stock_out
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS stock_out (
-            id SERIAL PRIMARY KEY,
-            gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
-            cylinder_state TEXT CHECK (cylinder_state IN ('empty', 'filled')),
-            destination_type TEXT CHECK (destination_type IN ('station', 'delivery', 'customer')),
-            destination_value TEXT NOT NULL,
-            time_out TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 
     # Create sales_table
     cur.execute("""
@@ -87,7 +77,25 @@ try:
             payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_out (
+        id                SERIAL PRIMARY KEY,
+        gas_id            INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+        cylinder_state    TEXT
+            CHECK (cylinder_state  IN ('empty','filled')),
+        destination_type  TEXT
+            CHECK (destination_type IN ('station','delivery','customer')),
+        destination_value TEXT NOT NULL,
+        time_out          TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
 
+    # Optional helper indexes for faster look‑ups by gas or destination
+    create_indexes_sql = """
+    CREATE INDEX IF NOT EXISTS idx_stock_out_gas_id     ON stock_out (gas_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_out_dest_type  ON stock_out (destination_type);
+    """
+        
     # Create users table
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -125,18 +133,56 @@ try:
             number_of_gas INTEGER NOT NULL DEFAULT 0
         );
     """)
-
-    # ✅ FIXED: Correct syntax for stock_change table
+  # ✅ Create stock_change table
     cur.execute("""
         CREATE TABLE IF NOT EXISTS stock_change (
             id SERIAL PRIMARY KEY,
-            gas_id INTEGER REFERENCES gas_table(gas_id),
-            cylinder_state VARCHAR(10) CHECK (cylinder_state IN ('empty', 'filled')),
-            returned_to VARCHAR(50),
-            time_returned TIMESTAMPTZ DEFAULT NOW()
+            gas_id INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            quantity_change INTEGER NOT NULL,
+            notes TEXT,
+            changed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    
+    # 1. buying_company master list
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS buying_company (
+            company_id   SERIAL PRIMARY KEY,
+            company_name TEXT UNIQUE NOT NULL
         );
     """)
 
+    SEED_COMPANIES = ['KAFUSH AND JAY', 'DAN SUPPLY', 'NEW SUPPLIER']
+    for name in SEED_COMPANIES:
+        cur.execute("""
+            INSERT INTO buying_company (company_name)
+            VALUES (%s)
+            ON CONFLICT (company_name) DO NOTHING;
+        """, (name,))
+
+    # 2. company_gas_price (one row per company × brand)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_gas_price (
+            company_id   INTEGER NOT NULL
+                         REFERENCES buying_company(company_id) ON DELETE CASCADE,
+            gas_id       INTEGER NOT NULL
+                         REFERENCES gas_table(gas_id)         ON DELETE CASCADE,
+            refill_price NUMERIC(10,2) DEFAULT 0,
+            full_price   NUMERIC(10,2) DEFAULT 0,
+            last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (company_id, gas_id)
+        );
+    """)
+
+    # 3. Auto‑populate matrix with zero prices for every combo
+    cur.execute("""
+        INSERT INTO company_gas_price (company_id, gas_id)
+        SELECT c.company_id, g.gas_id
+        FROM   buying_company c
+        CROSS  JOIN gas_table g
+        ON CONFLICT DO NOTHING;
+    """)
     conn.commit()
     print("✅ Tables created successfully.")
 
