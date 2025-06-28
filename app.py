@@ -1592,43 +1592,193 @@ def delete_kipsongo_gas(id):
 # --- EXTRA PAGES ---
 
 #  GET page
+from collections import defaultdict, namedtuple
+from datetime import datetime
+
+# ───────────────────────────────────────────────
+# GET /refill  – show form + history
+# ───────────────────────────────────────────────
+from collections import defaultdict, namedtuple
+from datetime import datetime
+
+# ───────────────────────────────────────────────
+# GET /refill  – show form + history
+# ───────────────────────────────────────────────
+from collections import defaultdict, namedtuple
+from datetime import datetime
+
+# ───────────────────────────────────────────────
+# GET /refill  – show form + history
+# ───────────────────────────────────────────────
 @app.route('/refill')
 def refill_page():
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_name;")
-        gases = cur.fetchall()
-    return render_template('refill.html', gases=gases)
+        # suppliers
+        cur.execute("""
+            SELECT company_id, company_name
+            FROM   buying_company
+            ORDER  BY company_name
+        """)
+        companies = [
+            dict(company_id=c, company_name=n)
+            for c, n in cur.fetchall()
+        ]
 
-#  POST handler
+        # gas brands   ← now includes Empty / Filled counts
+        cur.execute("""
+            SELECT gas_id, gas_name, empty_cylinders, filled_cylinders
+            FROM   gas_table
+            ORDER  BY gas_name
+        """)
+        gases = [
+            dict(gas_id=g, gas_name=gn, empty=emp, filled=fil)
+            for g, gn, emp, fil in cur.fetchall()
+        ]
+
+        # last 150 refill records
+        cur.execute("""
+            SELECT DATE(r.refill_time)  AS d,
+                   r.refill_time::time   AS t,
+                   bc.company_name,
+                   g.gas_name,
+                   r.quantity,
+                   r.unit_price,
+                   r.total_cost
+            FROM   refill_table r
+            JOIN   buying_company bc ON r.company_id = bc.company_id
+            JOIN   gas_table     g  ON r.gas_id     = g.gas_id
+            ORDER  BY d DESC, r.refill_time DESC
+            LIMIT 150
+        """)
+        raw = cur.fetchall()
+
+    # ── build day → company → records structure for template
+    HistoryRec = namedtuple("HistoryRec", "gas qty price total time")
+    day_map = defaultdict(lambda: defaultdict(list))
+    for d, t, comp, gas, qty, price, total in raw:
+        day_map[d][comp].append(HistoryRec(gas, qty, float(price), float(total), t))
+
+    history = []
+    for d in sorted(day_map.keys(), reverse=True):
+        companies_group = []
+        for comp in sorted(day_map[d].keys()):
+            recs = day_map[d][comp]
+            tot_qty  = sum(r.qty   for r in recs)
+            tot_cost = sum(r.total for r in recs)
+            companies_group.append({
+                "company":   comp,
+                "records":   recs,
+                "total_qty": tot_qty,
+                "total_cost": tot_cost
+        })
+    history.append({"date": d, "companies": companies_group})
+
+    return render_template(
+        "refill.html",
+        companies=companies,
+        gases=gases,
+        history=history
+    )
+
+# ───────────────────────────────────────────────
+# POST /add-refill  – save refill
+# ───────────────────────────────────────────────
 @app.route('/add-refill', methods=['POST'])
 def add_refill():
     try:
-        gas_id     = int(request.form['gas_id'])
-        refill_qty = int(request.form['refill_qty'])
+        comp_id = int(request.form['company_id'])
+        gid     = int(request.form['gas_id'])
+        qty     = int(request.form['refill_qty'])
 
-        if refill_qty <= 0:
-            flash("Quantity must be positive","error"); return redirect(url_for('refill_page'))
+        if qty <= 0:
+            flash("Quantity must be positive.", "error")
+            return redirect(url_for('refill_page'))
 
         with get_connection() as conn, conn.cursor() as cur:
-            # 1️⃣  Update stock (increase filled, decrease empty if you want)
+
+            # ── pull unit‑price from matrix ─────────────────────────────
+            cur.execute("""
+                SELECT refill_price
+                FROM   company_gas_price
+                WHERE  company_id = %s AND gas_id = %s
+            """, (comp_id, gid))
+            row = cur.fetchone()
+            if not row or row[0] in (None, 0):
+                flash("No price set for this supplier and gas brand.", "error")
+                return redirect(url_for('refill_page'))
+
+            unit_price = float(row[0])
+
+            # ── 1) update stock (safety check: enough empties?) ─────────
             cur.execute("""
                 UPDATE gas_table
-                SET filled_cylinders = filled_cylinders + %s
-                WHERE gas_id = %s
-            """,(refill_qty, gas_id))
+                   SET filled_cylinders = filled_cylinders + %s,
+                       empty_cylinders  = empty_cylinders  - %s
+                 WHERE gas_id          = %s
+                   AND empty_cylinders >= %s        -- safety
+                RETURNING empty_cylinders, filled_cylinders
+            """, (qty, qty, gid, qty))
 
-            # 2️⃣  Log in stock_change
+            updated_row = cur.fetchone()          # None → no row updated
+            if updated_row is None:
+                conn.rollback()
+                flash("❌ Not enough empty cylinders available for this brand.", "error")
+                return redirect(url_for('refill_page'))
+
+            # ── 2) insert into refill_table ────────────────────────────
+            cur.execute("""
+                INSERT INTO refill_table (company_id, gas_id, quantity, unit_price)
+                VALUES (%s, %s, %s, %s)
+            """, (comp_id, gid, qty, unit_price))
+
+            # ── 3) stock_change log ────────────────────────────────────
+            notes = f"Refill from supplier {comp_id} at {unit_price:.2f} KSh"
             cur.execute("""
                 INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                VALUES (%s,'refill',%s,'Cylinders refilled')
-            """,(gas_id, refill_qty))
+                VALUES (%s, 'refill', %s, %s)
+            """, (gid, qty, notes))
 
             conn.commit()
-        flash("Refill recorded!","success")
+            flash("Refill saved.", "success")
+
     except Exception as e:
-        flash(f"Error recording refill: {e}","error")
+        flash(f"Error: {e}", "error")
 
     return redirect(url_for('refill_page'))
+
+# ───────────────────────────────────────────────
+# Optional: Ajax helper to auto‑fill price
+# ───────────────────────────────────────────────
+@app.route('/get-price')
+def get_price():
+    comp = request.args.get('company_id', type=int)
+    gid  = request.args.get('gas_id', type=int)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT refill_price
+            FROM   company_gas_price
+            WHERE  company_id = %s AND gas_id = %s
+        """, (comp, gid))
+        row = cur.fetchone()
+    return {"price": float(row[0]) if row else 0}
+
+@app.route('/refill')
+def refill():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT gas_id, gas_name, empty_cylinders, filled_cylinders
+            FROM   gas_table
+            ORDER  BY gas_name
+        """)
+        gases = [
+            {"gas_id": gid, "gas_name": name, "empty_cylinders": empty, "filled_cylinders": filled}
+            for gid, name, empty, filled in cur.fetchall()
+        ]
+
+        cur.execute("SELECT company_id, company_name FROM buying_company ORDER BY company_name")
+        companies = cur.fetchall()
+
+    return render_template("refill.html", gases=gases, companies=companies)
 
 @app.route("/gas-form")
 def gasform():
