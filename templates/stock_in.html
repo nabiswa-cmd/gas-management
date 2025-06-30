@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Stock‑IN</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:Arial;padding:20px;background:#f9f9f9}
+    form{max-width:480px;margin:auto;background:#fff;padding:20px;border-radius:8px;
+         box-shadow:0 2px 6px rgba(0,0,0,.1)}
+    label,select,input{display:block;width:100%;margin-top:10px;padding:8px;
+         border:1px solid #ccc;border-radius:5px;box-sizing:border-box}
+    button{margin-top:15px;width:100%;padding:10px;background:#28a745;color:#fff;
+           border:none;border-radius:5px;font-weight:bold}
+    table{width:100%;border-collapse:collapse;margin-top:30px;background:#fff;
+          box-shadow:0 2px 6px rgba(0,0,0,.1)}
+    th,td{padding:8px;border:1px solid #ddd;text-align:center}
+    th{background:#444;color:#fff}
+    tr:nth-child(even){background:#fafafa}
+    .msg{margin:auto;text-align:center}
+  </style>
+</head>
+<body>
+
+<h2 style="text-align:center">Record Stock IN</h2>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat,msg in messages %}
+     <p class="msg" style="color:{{'red' if cat=='error' else 'green'}}">{{ msg }}</p>
+  {% endfor %}
+{% endwith %}
+
+<form action="{{ url_for('add_stock_in') }}" method="post">
+    <label>Gas Brand:</label>
+    <select name="gas_id" required>
+        <option value="">-- choose brand --</option>
+        {% for g in gases %}
+          <option value="{{ g[0] }}">{{ g[1] }}</option>
+        {% endfor %}
+    </select>
+
+    <label>Cylinder State:</label>
+    <select name="cylinder_state" required>
+        <option value="filled">Filled cylinder</option>
+        <option value="empty">Empty cylinder</option>
+    </select>
+
+    <label>Source Type:</label>
+    <select name="source_type" required>
+        <option value="supplier">Supplier / Station</option>
+        <option value="internal">Internal move</option>
+        <option value="customer">Customer return</option>
+    </select>
+
+    <label>Source Description (name, truck plate etc.):</label>
+    <input name="source_value" required>
+
+    <button type="submit">Save Stock‑IN</button>
+</form>
+
+<h3 style="text-align:center;margin-top:40px">Latest Stock‑IN Records</h3>
+<table>
+  <tr><th>ID</th><th>Gas</th><th>State</th><th>Source</th><th>When</th></tr>
+  {% for r in records %}
+     <tr>
+       <td>{{ r.id }}</td>
+       <td>{{ r.gas_name }}</td>
+       <td>{{ r.cylinder_state }}</td>
+       <td>{{ r.source_type }} : {{ r.source_value }}</td>
+      <td>{{ r[5].strftime('%Y‑%m‑%d %H:%M') }}</td>
+
+     </tr>
+  {% else %}
+     <tr><td colspan="5">No stock‑in records.</td></tr>
+  {% endfor %}
+</table>
+
+<a href="{{ url_for('dashboard') }}" style="display:block;text-align:center;margin-top:25px;">← Back to dashboard</a>
+</body>
+</html>

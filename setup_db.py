@@ -196,15 +196,15 @@ CREATE TABLE IF NOT EXISTS refill_table (
 """)
     cur.execute("""
 CREATE TABLE IF NOT EXISTS stock_in (
-    id          SERIAL PRIMARY KEY,
-    company_id  INTEGER REFERENCES buying_company(company_id) ON DELETE SET NULL,
-    gas_id      INTEGER REFERENCES gas_table(gas_id)         ON DELETE CASCADE,
-    quantity    INTEGER NOT NULL,
-    time_in     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-)
+    id              SERIAL PRIMARY KEY,
+    gas_id          INTEGER REFERENCES gas_table(gas_id) ON DELETE CASCADE,
+    cylinder_state  TEXT   CHECK (cylinder_state IN ('empty','filled')),
+    source_type     TEXT   CHECK (source_type IN ('supplier','internal','customer')),
+    source_value    TEXT   NOT NULL,
+    time_in         TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
 """)
-    conn.commit()
-    print("✅ Tables created successfully.")
+
 
 except Exception as e:
     print("❌ Error creating tables:", e)

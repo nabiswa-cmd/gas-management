@@ -146,38 +146,43 @@ def add_supplier():
             conn.rollback()
             flash(str(e), "error")
     return redirect(url_for('manage_pricing'))
-
 @app.route('/set-price', methods=['POST'])
 def set_price():
     comp_id = int(request.form['company_id'])
     gid_raw = request.form['gas_id']            # 'all_below', 'all_above', or number
     refill  = float(request.form['refill_price'] or 0)
-    full    = float(request.form['full_price']   or 0)
+    full    = float(request.form['full_price']  or 0)
 
     with get_connection() as conn, conn.cursor() as cur:
 
-        # — bulk options —
+        # ───────── bulk update rules ─────────────────────────────
         if gid_raw == "all_below":
+            # brands whose name *does NOT* contain “13”
             cur.execute("""
-                UPDATE company_gas_price
+                UPDATE company_gas_price AS cgp
                    SET refill_price = %s,
                        full_price   = %s,
                        last_updated = NOW()
-                 WHERE company_id = %s
-                   AND gas_id     < 25
+                FROM gas_table g
+               WHERE cgp.company_id = %s
+                 AND cgp.gas_id     = g.gas_id
+                 AND g.gas_name NOT ILIKE '%%13%%'
             """, (refill, full, comp_id))
 
         elif gid_raw == "all_above":
+            # brands whose name *does* contain “13”  (e.g. “Afri 13 kg”)
             cur.execute("""
-                UPDATE company_gas_price
+                UPDATE company_gas_price AS cgp
                    SET refill_price = %s,
                        full_price   = %s,
                        last_updated = NOW()
-                 WHERE company_id = %s
-                   AND gas_id     >= 25
+                FROM gas_table g
+               WHERE cgp.company_id = %s
+                 AND cgp.gas_id     = g.gas_id
+                 AND g.gas_name ILIKE '%%13%%'
             """, (refill, full, comp_id))
 
-        # — single brand —
+        # ───────── single‑brand path (unchanged) ────────────────
         else:
             gid = int(gid_raw)
             cur.execute("""
@@ -194,6 +199,8 @@ def set_price():
 
     flash("Price saved.", "success")
     return redirect(url_for('manage_pricing'))
+# ── show edit form ─────────────────────────────────────────────
+
 
 
 @app.route("/prepaid-list")
@@ -749,45 +756,64 @@ def add_gas_debt():
     return render_template('add_gas_debt.html', gas_id=gas_id, gas_name=gas_name, debt_list=debt_list)
 
 
-@app.route('/add-gas', methods=['GET', 'POST'])
-def add_gas():
-    conn = get_connection()
-    cur = conn.cursor()
+# -----------------------
+#   STOCK  IN   FORM + POST
+# -----------------------
 
-    if request.method == 'POST':
-        gas_name = request.form['gas_name'].strip()
-        empty_cylinders = request.form['empty_cylinders']
-        filled_cylinders = request.form['filled_cylinders']
+@app.route("/stock-in")
+def stock_in_page():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT gas_id, gas_name FROM gas_table ORDER BY gas_name")
+        gases = cur.fetchall()
 
-        if not gas_name or empty_cylinders is None or filled_cylinders is None:
-            flash("Please fill all fields.")
-            return redirect(url_for('add_gas'))
-
-        try:
-            empty_cylinders = int(empty_cylinders)
-            filled_cylinders = int(filled_cylinders)
-        except ValueError:
-            flash("Quantity fields must be numbers.")
-            return redirect(url_for('add_gas'))
-
-        # Insert into gas table (adjust table and column names)
         cur.execute("""
-            INSERT INTO gas_table (gas_name, empty_cylinders, filled_cylinders)
-            VALUES (%s, %s, %s)
-        """, (gas_name, empty_cylinders, filled_cylinders))
-        conn.commit()
+            SELECT si.id, g.gas_name, si.cylinder_state,
+                   si.source_type, si.source_value, si.time_in
+            FROM   stock_in si
+            JOIN   gas_table g ON g.gas_id = si.gas_id
+            ORDER  BY si.time_in DESC
+            LIMIT 100
+        """)
+        records = cur.fetchall()
 
-        flash(f"Gas '{gas_name}' added successfully.")
-        return redirect(url_for('add_gas'))
+    return render_template("stock_in.html", gases=gases, records=records)
 
-    # On GET, show all gases
-    cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id")
-    gases = cur.fetchall()
 
-    cur.close()
-    conn.close()
+@app.post("/add-stock-in")
+def add_stock_in():
+    try:
+        gid   = int(request.form["gas_id"])
+        state = request.form["cylinder_state"]           # 'empty' / 'filled'
+        src_t = request.form["source_type"]              # 'supplier' / …
+        src_v = request.form["source_value"].strip()
 
-    return render_template('gas_form.html', gases=gases)
+        with get_connection() as conn, conn.cursor() as cur:
+
+            # ── 1.  insert stock_in row
+            cur.execute("""
+                INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                VALUES (%s,%s,%s,%s)
+            """, (gid, state, src_t, src_v))
+
+            # ── 2.  update stock counts
+            if state == "filled":
+                cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders + 1 WHERE gas_id=%s",(gid,))
+            else:
+                cur.execute("UPDATE gas_table SET empty_cylinders  = empty_cylinders  + 1 WHERE gas_id=%s",(gid,))
+
+            # ── 3.  log change
+            note = f"Stock‑IN ({state}) from {src_t}: {src_v}"
+            cur.execute("""
+                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                VALUES (%s,'stock_in',1,%s)
+            """, (gid, note))
+
+            conn.commit()
+            flash("Stock‑in recorded ✅","success")
+    except Exception as e:
+        flash(f"Error: {e}","error")
+
+    return redirect(url_for("stock_in_page"))
 
 # --- SALES PAGE AND SUBMISSION ---
 from collections import defaultdict
@@ -1669,28 +1695,18 @@ def delete_kipsongo_gas(id):
 # --- EXTRA PAGES ---
 
 #  GET page
+# app.py  ─────────────────────────────────────────────
 from collections import defaultdict, namedtuple
-from datetime import datetime
+from datetime import datetime, date
+from flask import render_template, flash, redirect, url_for, request
 
 # ───────────────────────────────────────────────
-# GET /refill  – show form + history
-# ───────────────────────────────────────────────
-from collections import defaultdict, namedtuple
-from datetime import datetime
-
-# ───────────────────────────────────────────────
-# GET /refill  – show form + history
-# ───────────────────────────────────────────────
-from collections import defaultdict, namedtuple
-from datetime import datetime
-
-# ───────────────────────────────────────────────
-# GET /refill  – show form + history
+# GET  /refill  – show form + grouped history
 # ───────────────────────────────────────────────
 @app.route('/refill')
 def refill_page():
     with get_connection() as conn, conn.cursor() as cur:
-        # suppliers
+        # ①  suppliers
         cur.execute("""
             SELECT company_id, company_name
             FROM   buying_company
@@ -1701,7 +1717,7 @@ def refill_page():
             for c, n in cur.fetchall()
         ]
 
-        # gas brands   ← now includes Empty / Filled counts
+        # ②  gas brands (with current stock)
         cur.execute("""
             SELECT gas_id, gas_name, empty_cylinders, filled_cylinders
             FROM   gas_table
@@ -1712,50 +1728,61 @@ def refill_page():
             for g, gn, emp, fil in cur.fetchall()
         ]
 
-        # last 150 refill records
+        # ③  last 150 refill rows (newest first)
         cur.execute("""
-            SELECT DATE(r.refill_time)  AS d,
-                   r.refill_time::time   AS t,
-                   bc.company_name,
-                   g.gas_name,
-                   r.quantity,
-                   r.unit_price,
-                   r.total_cost
-            FROM   refill_table r
-            JOIN   buying_company bc ON r.company_id = bc.company_id
-            JOIN   gas_table     g  ON r.gas_id     = g.gas_id
-            ORDER  BY d DESC, r.refill_time DESC
+            SELECT
+                DATE(r.refill_time)        AS d,    -- day bucket
+                r.refill_time::time        AS t,    -- hh:mm:ss
+                bc.company_name,
+                g.gas_name,
+                r.quantity,
+                r.unit_price,
+                r.total_cost
+            FROM   refill_table  r
+            JOIN   buying_company bc ON bc.company_id = r.company_id
+            JOIN   gas_table      g  ON g.gas_id      = r.gas_id
+            ORDER  BY r.refill_time DESC
             LIMIT 150
         """)
         raw = cur.fetchall()
 
-    # ── build day → company → records structure for template
+    # ───────── Build nested structure → history[day][company] = list(records)
     HistoryRec = namedtuple("HistoryRec", "gas qty price total time")
-    day_map = defaultdict(lambda: defaultdict(list))
-    for d, t, comp, gas, qty, price, total in raw:
-        day_map[d][comp].append(HistoryRec(gas, qty, float(price), float(total), t))
+    day_map: dict[date, dict[str, list[HistoryRec]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
 
-    history = []
-    for d in sorted(day_map.keys(), reverse=True):
+    for d, t, comp, gas, qty, price, total in raw:
+        day_map[d][comp].append(
+            HistoryRec(gas, qty, float(price), float(total), t)
+        )
+
+    # Flatten into list‑of‑dicts for Jinja
+    history: list[dict] = []
+    for d in sorted(day_map.keys(), reverse=True):          # newest day first
         companies_group = []
         for comp in sorted(day_map[d].keys()):
             recs = day_map[d][comp]
             tot_qty  = sum(r.qty   for r in recs)
             tot_cost = sum(r.total for r in recs)
             companies_group.append({
-                "company":   comp,
-                "records":   recs,
-                "total_qty": tot_qty,
+                "company":    comp,
+                "records":    recs,
+                "total_qty":  tot_qty,
                 "total_cost": tot_cost
+            })
+        history.append({
+            "date":      d,
+            "companies": companies_group
         })
-    history.append({"date": d, "companies": companies_group})
 
     return render_template(
         "refill.html",
-        companies=companies,
-        gases=gases,
-        history=history
+        companies = companies,
+        gases     = gases,
+        history   = history
     )
+
 @app.route('/profit')
 def view_profit():
     with get_connection() as conn, conn.cursor() as cur:
@@ -1874,29 +1901,66 @@ def refill():
 
     return render_template("refill.html", gases=gases, companies=companies)
 
-@app.route("/gas-form")
-def gasform():
-    conn = get_connection()          # Call the function to get connection
-    cur = conn.cursor()              # Use cur or cursor consistently
-    cur.execute("SELECT gas_id, gas_name, empty_cylinders, filled_cylinders FROM gas_table ORDER BY gas_id")
-    gases = cur.fetchall()
-    cur.close()
-    conn.close()
+# -----------------------
+#  GAS  –  ADD / UPDATE / DELETE
+# -----------------------
 
-    # Assuming you want to render a template 'gas_form.html' with gases data
-    return render_template('gas_form.html', gases=gases)
+@app.route("/gas-form")                      # ➊ show page
+def gas_form():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT gas_id, gas_name,
+                   empty_cylinders, filled_cylinders,
+                   (empty_cylinders + filled_cylinders) AS total
+            FROM   gas_table
+            ORDER  BY gas_id
+        """)
+        gases = cur.fetchall()
+    return render_template("gas_form.html", gases=gases)
 
-@app.route("/debug-gases")
-def debug_gases():
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM gas_table;")
-                gases = cur.fetchall()
-        return f"Gas table: {gases}"
-    except Exception as e:
-        return f"Error fetching gas table: {e}"
 
+@app.post("/add-gas")                       # ➋ insert new brand
+def add_gas():
+    name   = request.form["gas_name"].strip()
+    empty  = int(request.form["empty_cylinders"]  or 0)
+    filled = int(request.form["filled_cylinders"] or 0)
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO gas_table (gas_name, empty_cylinders, filled_cylinders)
+            VALUES (%s,%s,%s)
+        """, (name, empty, filled))
+        conn.commit()
+    flash("Gas added ✅", "success")
+    return redirect(url_for("gas_form"))
+
+
+@app.post("/update-gas/<int:gid>")          # ➌ update counts / name
+def update_gas(gid):
+    name   = request.form["gas_name"].strip()
+    empty  = int(request.form["empty_cylinders"]  or 0)
+    filled = int(request.form["filled_cylinders"] or 0)
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE gas_table
+               SET gas_name = %s,
+                   empty_cylinders  = %s,
+                   filled_cylinders = %s
+             WHERE gas_id = %s
+        """, (name, empty, filled, gid))
+        conn.commit()
+    flash("Gas updated ✅", "success")
+    return redirect(url_for("gas_form"))
+
+
+@app.post("/delete-gas/<int:gid>")          # ➍ delete brand
+def delete_gas(gid):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM gas_table WHERE gas_id=%s", (gid,))
+        conn.commit()
+    flash("Gas deleted 🗑️", "success")
+    return redirect(url_for("gas_form"))
 # --- MAIN APP ---
 
 if __name__ == '__main__':
