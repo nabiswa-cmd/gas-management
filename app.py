@@ -755,65 +755,141 @@ def add_gas_debt():
 
     return render_template('add_gas_debt.html', gas_id=gas_id, gas_name=gas_name, debt_list=debt_list)
 
-
-# -----------------------
-#   STOCK  IN   FORM + POST
-# -----------------------
-
+# ------------------------------------------------------------------
+#  STOCK‑IN  (form  +  grouped list that can be returned)
+# ------------------------------------------------------------------
 @app.route("/stock-in")
 def stock_in_page():
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT gas_id, gas_name FROM gas_table ORDER BY gas_name")
         gases = cur.fetchall()
 
+        # group ALSO by original source
         cur.execute("""
-            SELECT si.id, g.gas_name, si.cylinder_state,
-                   si.source_type, si.source_value, si.time_in
+            SELECT g.gas_id,
+                   g.gas_name,
+                   si.cylinder_state,
+                   si.source_type,
+                   si.source_value,
+                   COUNT(*)                      AS qty
             FROM   stock_in si
             JOIN   gas_table g ON g.gas_id = si.gas_id
-            ORDER  BY si.time_in DESC
-            LIMIT 100
+            GROUP  BY g.gas_id, g.gas_name,
+                     si.cylinder_state, si.source_type, si.source_value
+            ORDER  BY g.gas_name, si.cylinder_state, si.source_type, si.source_value
         """)
-        records = cur.fetchall()
+        grouped = cur.fetchall()     # (gid,gname,state,src_t,src_v,qty)
 
-    return render_template("stock_in.html", gases=gases, records=records)
+    return render_template("stock_in.html",
+                           gases=gases,
+                           grouped=grouped)
 
 
+# ------------------------------------------------------------------
+#  POST /add-stock-in   – one cylinder INTO storage
+# ------------------------------------------------------------------
 @app.post("/add-stock-in")
 def add_stock_in():
     try:
         gid   = int(request.form["gas_id"])
-        state = request.form["cylinder_state"]           # 'empty' / 'filled'
-        src_t = request.form["source_type"]              # 'supplier' / …
+        state = request.form["cylinder_state"]              # 'empty' / 'filled'
+        src_t = request.form["source_type"]
         src_v = request.form["source_value"].strip()
 
         with get_connection() as conn, conn.cursor() as cur:
-
-            # ── 1.  insert stock_in row
+            # ➊ write one row into stock_in
             cur.execute("""
-                INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                INSERT INTO stock_in (gas_id, cylinder_state,
+                                       source_type, source_value)
                 VALUES (%s,%s,%s,%s)
             """, (gid, state, src_t, src_v))
 
-            # ── 2.  update stock counts
-            if state == "filled":
-                cur.execute("UPDATE gas_table SET filled_cylinders = filled_cylinders + 1 WHERE gas_id=%s",(gid,))
-            else:
-                cur.execute("UPDATE gas_table SET empty_cylinders  = empty_cylinders  + 1 WHERE gas_id=%s",(gid,))
+            # ➋ update main stock counts
+            column = "filled_cylinders" if state == "filled" else "empty_cylinders"
+            cur.execute(f"UPDATE gas_table SET {column} = {column} + 1 WHERE gas_id = %s", (gid,))
 
-            # ── 3.  log change
+            # ➌ stock_change log ( +1 because item came **in** )
             note = f"Stock‑IN ({state}) from {src_t}: {src_v}"
             cur.execute("""
                 INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                VALUES (%s,'stock_in',1,%s)
+                VALUES (%s,'stock_in',+1,%s)
             """, (gid, note))
 
             conn.commit()
-            flash("Stock‑in recorded ✅","success")
+        flash("Stock‑in recorded ✔️", "success")
+
     except Exception as e:
-        flash(f"Error: {e}","error")
+        flash(f"Error: {e}", "error")
 
     return redirect(url_for("stock_in_page"))
+
+
+# ------------------------------------------------------------------
+#  POST /return-stock-in   – return N cylinders to the origin
+# ------------------------------------------------------------------
+@app.post("/return-stock-in")
+def return_stock_in():
+    try:
+        gid       = int(request.form["gas_id"])
+        in_state  = request.form["cylinder_state"]          # state in store
+        src_type  = request.form["source_type"]
+        src_value = request.form["source_value"]
+        qty       = int(request.form["return_qty"])
+        out_state = request.form["returned_state"]          # empty / filled
+
+        if qty <= 0:
+            flash("Quantity must be positive.", "error")
+            return redirect(url_for("stock_in_page"))
+
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM stock_in
+                WHERE gas_id = %s
+                  AND cylinder_state = %s
+                  AND source_type    = %s
+                  AND source_value   = %s
+            """, (gid, in_state, src_type, src_value))
+            available = cur.fetchone()[0]
+
+            if qty > available:
+                flash("❌ Not enough cylinders available.", "error")
+                return redirect(url_for("stock_in_page"))
+
+            # delete exactly <qty> rows of this batch
+            cur.execute("""
+                DELETE FROM stock_in
+                WHERE ctid IN (
+                    SELECT ctid FROM stock_in
+                    WHERE gas_id = %s
+                      AND cylinder_state = %s
+                      AND source_type    = %s
+                      AND source_value   = %s
+                    ORDER BY time_in
+                    LIMIT %s
+                )
+            """, (gid, in_state, src_type, src_value, qty))
+
+            # adjust stock counts (deduct ‘in_state’ quantity)
+            col = "filled_cylinders" if in_state == "filled" else "empty_cylinders"
+            cur.execute(f"UPDATE gas_table SET {col} = {col} - %s WHERE gas_id = %s",
+                        (qty, gid))
+
+            # log
+            note = (f"Returned {qty} {in_state} → sent back as {out_state} "
+                    f"to {src_type}: {src_value}")
+            cur.execute("""
+                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                VALUES (%s,'return_out',%s,%s)
+            """, (gid, -qty, note))
+
+            conn.commit()
+            flash("Return recorded ✔️", "success")
+
+    except Exception as e:
+        flash(f"Error: {e}", "error")
+
+    return redirect(url_for("stock_in_page"))
+
 
 # --- SALES PAGE AND SUBMISSION ---
 from collections import defaultdict
@@ -980,7 +1056,6 @@ def submit_sale():
             ))
 
             # ─── Stock movements ───────────────────────────────────────
-            # 1. Decrease FILLED when cylinder leaves Ukweli store
             if not source_selected:
                 cur.execute("""
                     UPDATE gas_table
@@ -1007,7 +1082,6 @@ def submit_sale():
                 """, (target_empty_id, note_txt))
 
             elif not complete_sale and not empty_not_given:
-                # Normal sale with returned empty
                 cur.execute("""
                     UPDATE gas_table
                        SET empty_cylinders = empty_cylinders + 1
@@ -1018,7 +1092,7 @@ def submit_sale():
                     VALUES (%s,'increase_empty',1,'Empty received')
                 """, (gas_id,))
 
-            # 3. Empty‑Not‑Given → customer keeps cylinder
+            # 3. Empty‑Not‑Given
             if empty_not_given:
                 dest = empty_customer or "No name"
                 cur.execute("""
@@ -1031,7 +1105,7 @@ def submit_sale():
                     VALUES (%s,'stock_out',-1,'Filled taken w/out empty by ' || %s)
                 """, (gas_id, dest))
 
-            # 4. Complete sale (customer buys bottle + gas) → only filled -1
+            # 4. Complete sale
             if complete_sale:
                 cur.execute("""
                     INSERT INTO stock_out
@@ -1043,14 +1117,12 @@ def submit_sale():
                     VALUES (%s,'stock_out',-1,'Complete sale')
                 """, (gas_id,))
 
-            # 5. Source tables (empty coming IN to Ukweli)
+            # 5. Source tables
             if src_kipsongo:
                 cur.execute("""
-                    INSERT INTO kipsongo_gas_in_ukweli (gas_id, number_of_gas)
-                    VALUES (%s,1)
-                    ON CONFLICT (gas_id) DO UPDATE
-                      SET number_of_gas = kipsongo_gas_in_ukweli.number_of_gas + 1
-                """, (gas_id,))
+                    INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                    VALUES (%s, %s, %s, %s)
+                """, (gas_id, 'filled', 'station', 'Pioneer Kipsongo'))
                 cur.execute("""
                     INSERT INTO stock_change (gas_id, action, quantity_change, notes)
                     VALUES (%s,'stock_in',+1,'empty from kipsongo')
@@ -1058,27 +1130,34 @@ def submit_sale():
 
             elif src_mama:
                 cur.execute("""
-                    INSERT INTO mama_pam_gas_in_ukweli (gas_id, number_of_gas)
-                    VALUES (%s,1)
-                    ON CONFLICT (gas_id) DO UPDATE
-                      SET number_of_gas = mama_pam_gas_in_ukweli.number_of_gas + 1
-                """, (gas_id,))
+                    INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                    VALUES (%s, %s, %s, %s)
+                """, (gas_id, 'filled', 'station', 'Mama Pam'))
                 cur.execute("""
                     INSERT INTO stock_change (gas_id, action, quantity_change, notes)
                     VALUES (%s,'stock_in',+1,'empty from mama pam')
                 """, (gas_id,))
 
+           # … (earlier code unchanged)
+
             elif src_external:
+                # user only types the free‑text box “external_value”
+                ext_value = request.form.get("external_value", "").strip()
+                if not ext_value:
+                    ext_value = "external-unknown"
+
+                # 1️⃣ record the incoming (filled) cylinder
                 cur.execute("""
-                    INSERT INTO external_gas_in_ukweli (gas_id, number_of_gas)
-                    VALUES (%s,1)
-                    ON CONFLICT (gas_id) DO UPDATE
-                      SET number_of_gas = external_gas_in_ukweli.number_of_gas + 1
-                """, (gas_id,))
+                    INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                    VALUES (%s, %s, 'Work Station', %s)            -- <‑‑ source_type fixed to 'station'
+                """, (gas_id, "filled", ext_value))
+
+                # 2️⃣ log the change
                 cur.execute("""
                     INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                    VALUES (%s,'stock_in',+1,'empty from external place')
-                """, (gas_id,))
+                    VALUES (%s, 'stock_in', +1, 'empty from external place: ' || %s)
+                """, (gas_id, ext_value))
+
 
             conn.commit()
             flash("Sale recorded successfully.", "success")
@@ -1087,6 +1166,7 @@ def submit_sale():
         flash(f"Error processing sale: {e}", "error")
 
     return redirect("/sales")
+
 
 @app.route("/profit-list")
 def profit_list():

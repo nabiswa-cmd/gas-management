@@ -225,15 +225,40 @@ function handlePrepayLinkClick() {
 }
 </script>
 
+<!-- … Empty received from ; … -->
+<fieldset>
+    <legend>Empty received from ;</legend>
 
-        <fieldset>
-            <legend>Empty received from ; </legend>
-            <input type="radio" name="source" value="kipsongo_pioneer"> Kipsongo Pioneer<br>
-            <input type="radio" name="source" value="mama_pam"> Mama Pam<br>
-            <input type="radio" name="source" value="external"> External<br>
-            <input type="radio" name="source" value="customer" checked> Customer<br>
-            <button type="submit" name="action" value="normal">Submit Sale</button>
-        </fieldset>
+    <label><input type="radio" name="source" value="kipsongo_pioneer"
+                  onchange="toggleExternal()"> Kipsongo Pioneer</label><br>
+
+    <label><input type="radio" name="source" value="mama_pam"
+                  onchange="toggleExternal()"> Mama Pam</label><br>
+
+    <label><input type="radio" name="source" value="external"
+                  onchange="toggleExternal()"> External</label><br>
+
+    <label><input type="radio" name="source" value="customer"
+                  onchange="toggleExternal()" checked> Customer</label><br>
+
+    <!-- ⬇︎ Hidden text box that appears only for ‘external’ -->
+    <div id="external_box" style="display:none; margin-top:8px;">
+        <label>External details (supplier, workstation …):</label>
+        <input type="text" name="external_details"
+               placeholder="e.g. Work Station / Mr Omondi">
+    </div>
+
+    <button type="submit">Submit Sale</button>
+</fieldset>
+
+<script>
+function toggleExternal(){
+    const val = document.querySelector('input[name="source"]:checked').value;
+    document.getElementById('external_box').style.display =
+        (val === 'external') ? 'block' : 'none';
+}
+</script>
+
 
           <!-- SPECIAL section -->
     <fieldset>
