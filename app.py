@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-DATABASE_URL = "postgresql://postgres:[James3182.]@db.bjhhadfkerhrejmuhogb.supabase.co:5432/postgres"
+DATABASE_URL = os.environ["DATABASE_URL"]
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 

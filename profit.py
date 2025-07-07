@@ -1,7 +1,6 @@
 import psycopg2, textwrap
-
-DATABASE_URL = "postgresql://postgres:[James3182.]@db.bjhhadfkerhrejmuhogb.supabase.co:5432/postgres"
-
+import os 
+DATABASE_URL = os.environ["DATABASE_URL"]
 sql = textwrap.dedent("""
 /* ─────────────────────────────────────────────
    Profit trigger (v4)  – ignores 5‑day refills that
