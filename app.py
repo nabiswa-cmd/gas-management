@@ -12,39 +12,97 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-DATABASE_URL = "postgresql://james:SPpKLyvgRTImuzDFaUy4thGKojpKfuBY@dpg-d120e495pdvs73c758og-a.oregon-postgres.render.com/ukwelidb"
+DATABASE_URL = "postgresql://postgres:[James3182.]@db.bjhhadfkerhrejmuhogb.supabase.co:5432/postgres"
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
-# --- AUTHENTICATION AND DASHBOARD ---
+# ───────────────────────────────────────────────
+#  Imports you already have …
+#  add these two if they’re not present
+# ───────────────────────────────────────────────
+from functools import wraps          # ← NEW
+from flask import session, redirect, url_for, flash, render_template, request
 
+# ───────────────────────────────────────────────
+#  Helper : only‑admins gate
+# ───────────────────────────────────────────────
+def admin_required(f):
+    """Decorator: allow access only if the logged‑in user is admin."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if session.get("role") != "admin":
+            flash("Admins only ❌", "error")
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return wrapped
+
+
+# ───────────────────────────────────────────────
+#  Auth + dashboard
+# ───────────────────────────────────────────────
 @app.route("/")
 def home():
-    return render_template('login.html')
+    return render_template("login.html")
 
-@app.route("/login", methods=["POST"])
+
+@app.post("/login")
 def login():
-    username = request.form['username']
-    password = request.form['password']
+    username = request.form["username"].strip().lower()
+    password = request.form["password"].strip()
+
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
-                user = cur.fetchone()
-        if user:
-            session['username'] = username
-            return redirect(url_for('dashboard'))
-        else:
-            return "Invalid credentials. <a href='/'>Try again</a>"
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_id, username, role        -- ↙ role column!
+                FROM   users
+                WHERE  username = %s AND password = %s
+                """,
+                (username, password)
+            )
+            row = cur.fetchone()
+
+        if row:
+            user_id, uname, role = row
+            # ─ store details in session ─
+            session["user_id"] = user_id
+            session["username"] = uname
+            session["role"] = role or "user"        # default non‑admin
+            flash("Login successful ✅", "success")
+            return redirect(url_for("dashboard"))
+
+        flash("Invalid credentials ❌", "error")
+        return redirect(url_for("home"))
+
     except Exception as e:
-        return f"Database error: {e}"
+        flash(f"Database error: {e}", "error")
+        return redirect(url_for("home"))
+
 
 @app.route("/dashboard")
 def dashboard():
-    if 'username' in session:
-        return render_template('dashboard.html', username=session['username'])
-    else:
-        return redirect(url_for('home'))
+    if "username" not in session:
+        return redirect(url_for("home"))
+
+    return render_template(
+        "dashboard.html",
+        username=session["username"],
+        role=session.get("role", "user")
+    )
+
+
+
+
+
+# ───────────────────────────────────────────────
+#  Logout helper
+# ───────────────────────────────────────────────
+@app.post("/logout")
+def logout():
+    session.clear()
+    flash("Logged out.", "success")
+    return redirect(url_for("home"))
+
 from flask import request, redirect, url_for, render_template
 from datetime import datetime
 @app.route('/prepaid-form')
@@ -57,12 +115,85 @@ def Prepaidform():
             gases = cur.fetchall()
 
     return render_template("Prepaidform.html", gases=gases, selected_gas_id=gas_id)
+# --- ACCOUNT DASHBOARD ————————————————————————————
+from werkzeug.security import generate_password_hash, check_password_hash   # optional but recommended
+
+# GET  ➜ show “My account” page
+@app.route("/account")
+def my_account():
+    if "username" not in session:                      # ⛔ not signed‑in
+        flash("Please log in first.", "error")
+        return redirect(url_for("home"))
+
+    user = session["username"]
+
+    # pull current data (in case you later want e‑mail, role, etc.)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT username FROM users WHERE username=%s", (user,))
+        row = cur.fetchone()
+        if not row:
+            flash("User not found.", "error")
+            return redirect(url_for("dashboard"))
+
+    return render_template("account.html", username=row[0])
+
+
+# POST ➜ update details
+@app.post("/update-account")
+def update_account():
+    if "username" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("home"))
+
+    current_user = session["username"]
+    new_user     = request.form.get("new_username"  , "").strip().lower()
+    new_pass     = request.form.get("new_password_1", "")
+    confirm_pass = request.form.get("new_password_2", "")
+
+    if new_pass or new_user:       # at least one field changed
+        if new_pass and new_pass != confirm_pass:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("my_account"))
+
+        try:
+            with get_connection() as conn, conn.cursor() as cur:
+
+                # 1) change username (if requested)
+                if new_user and new_user != current_user:
+                    cur.execute("""
+                        UPDATE users SET username=%s
+                        WHERE username=%s
+                    """, (new_user, current_user))
+                    session["username"] = new_user          # keep session fresh
+                    current_user = new_user                 # chain for PW update
+
+                # 2) change password (if requested)
+                if new_pass:
+                        
+                    cur.execute("""
+                        UPDATE users SET password=%s
+                        WHERE username=%s
+                    """, (new_pass , current_user))
+
+                conn.commit()
+                flash("Account updated ✔️", "success")
+
+        except Exception as e:
+            conn.rollback()
+            flash(f"Error: {e}", "error")
+
+    else:
+        flash("Nothing to update.", "info")
+
+    return redirect(url_for("my_account"))
+
 
 # ─────────────────────────────────────────────────────────────
 #  GET  –  Supplier / Pricing Manager page
 #  URL  : /manage-pricing
 # ─────────────────────────────────────────────────────────────
 @app.route('/manage-pricing')
+@admin_required
 def manage_pricing():
     with get_connection() as conn, conn.cursor() as cur:
 
@@ -483,7 +614,7 @@ def add_payment(debt_id):
                             empty_not_given,
                             exchange_cylinder,
                             from_debt
-                        ) VALUES (%s, NOW(), %s, 0, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE)
+                        ) VALUES (%s, NOW(), %s, 0, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE)
                     """, (
                         debt['gas_id'],
                         float(debt['amount_to_be_paid'])
@@ -503,7 +634,115 @@ def add_payment(debt_id):
         print("Error in add_payment:", e)
         flash(f"Error processing payment: {e}", "error")
         return redirect(url_for('add_gas_debt'))
+# ---------------------------------------------------------------
+#  GET /empty-cylinders  – view EMPTY stock + subtotals
+# ---------------------------------------------------------------
+@app.route("/empty-cylinders")
+def empty_cylinders_page():
+    with get_connection() as conn, conn.cursor() as cur:
+        # fetch ONLY brands that actually have empties (>0)
+        cur.execute("""
+            SELECT gas_id, gas_name, empty_cylinders
+              FROM gas_table
+             WHERE empty_cylinders > 0
+             ORDER BY gas_name
+        """)
+        rows = cur.fetchall()                      # (id, name, empty)
 
+    # ── compute the two subtotals
+    total_13    = sum(r[2] for r in rows if "13kg" in r[1].lower())
+    total_other = sum(r[2] for r in rows if "13kg" not in r[1].lower())
+    grand_total = total_13 + total_other
+
+    return render_template(
+        "empty_cylinders.html",
+        brands      = rows,
+        total_13    = total_13,
+        total_other = total_other,
+        grand_total = grand_total
+    )
+
+# ───────────────────────────────────────────────────────────────
+# GET  /manage-users      – show user list + add form
+# POST /add-user          – create user
+# POST /update-user/<id>  – change username / password / role
+# POST /delete-user/<id>  – drop user
+# ───────────────────────────────────────────────────────────────
+from werkzeug.security import generate_password_hash
+
+@app.route("/manage-users")
+def manage_users():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT user_id, username, role FROM users ORDER BY user_id")
+        users = cur.fetchall()              # [(id,name,role), …]
+    return render_template("manage_users.html", users=users)
+
+
+@app.post("/add-user")
+def add_user():
+    uname = request.form["username"].strip()
+    pwd   = request.form["password"]
+    role  = request.form.get("role","user")
+    if not uname or not pwd:
+        flash("Username and password required.","error")
+        return redirect(url_for("manage_users"))
+
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (username,password,role)
+                VALUES (%s,%s,%s)
+            """, (uname, generate_password_hash(pwd), role))
+            conn.commit()
+            flash("User added ✔️","success")
+    except Exception as e:
+        flash(str(e),"error")
+
+    return redirect(url_for("manage_users"))
+
+
+@app.post("/update-user/<int:uid>")
+def update_user(uid):
+    uname = request.form["username"].strip()
+    pwd   = request.form["password"].strip()      # blank means “leave as‑is”
+    role  = request.form.get("role","user")
+
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            # build update dynamically
+            if pwd:
+                cur.execute("""
+                    UPDATE users
+                       SET username=%s,
+                           password=%s,
+                           role=%s
+                     WHERE user_id=%s
+                """, (uname, generate_password_hash(pwd), role, uid))
+            else:            # keep old password
+                cur.execute("""
+                    UPDATE users
+                       SET username=%s,
+                           role=%s
+                     WHERE user_id=%s
+                """, (uname, role, uid))
+            conn.commit()
+            flash("User updated ✔️","success")
+    except Exception as e:
+        flash(str(e),"error")
+
+    return redirect(url_for("manage_users"))
+
+
+@app.post("/delete-user/<int:uid>")
+def delete_user(uid):
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM users WHERE user_id=%s",(uid,))
+            conn.commit()
+            flash("User deleted.","success")
+    except Exception as e:
+        flash(str(e),"error")
+    return redirect(url_for("manage_users"))
 
 
 
@@ -823,9 +1062,8 @@ def add_stock_in():
 
     return redirect(url_for("stock_in_page"))
 
-
 # ------------------------------------------------------------------
-#  POST /return-stock-in   – return N cylinders to the origin
+#  POST /return-stock-in – return N cylinders to the origin
 # ------------------------------------------------------------------
 @app.post("/return-stock-in")
 def return_stock_in():
@@ -842,6 +1080,7 @@ def return_stock_in():
             return redirect(url_for("stock_in_page"))
 
         with get_connection() as conn, conn.cursor() as cur:
+            # ⬅️ Count how many are available
             cur.execute("""
                 SELECT COUNT(*) FROM stock_in
                 WHERE gas_id = %s
@@ -855,7 +1094,7 @@ def return_stock_in():
                 flash("❌ Not enough cylinders available.", "error")
                 return redirect(url_for("stock_in_page"))
 
-            # delete exactly <qty> rows of this batch
+            # 🗑 Delete <qty> rows of this match
             cur.execute("""
                 DELETE FROM stock_in
                 WHERE ctid IN (
@@ -869,14 +1108,16 @@ def return_stock_in():
                 )
             """, (gid, in_state, src_type, src_value, qty))
 
-            # adjust stock counts (deduct ‘in_state’ quantity)
-            col = "filled_cylinders" if in_state == "filled" else "empty_cylinders"
-            cur.execute(f"UPDATE gas_table SET {col} = {col} - %s WHERE gas_id = %s",
-                        (qty, gid))
+            # ✅ Decrease either FILLED or EMPTY, based on returned_state
+            col = "filled_cylinders" if out_state == "filled" else "empty_cylinders"
+            cur.execute(f"""
+                UPDATE gas_table
+                   SET {col} = {col} - %s
+                 WHERE gas_id = %s
+            """, (qty, gid))
 
-            # log
-            note = (f"Returned {qty} {in_state} → sent back as {out_state} "
-                    f"to {src_type}: {src_value}")
+            # 📝 Log this return
+            note = f"Returned {qty} {in_state} → sent back as {out_state} to {src_type}: {src_value}"
             cur.execute("""
                 INSERT INTO stock_change (gas_id, action, quantity_change, notes)
                 VALUES (%s,'return_out',%s,%s)
@@ -889,6 +1130,7 @@ def return_stock_in():
         flash(f"Error: {e}", "error")
 
     return redirect(url_for("stock_in_page"))
+
 
 
 # --- SALES PAGE AND SUBMISSION ---
@@ -1122,7 +1364,7 @@ def submit_sale():
                 cur.execute("""
                     INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
                     VALUES (%s, %s, %s, %s)
-                """, (gas_id, 'filled', 'station', 'Pioneer Kipsongo'))
+                """, (gas_id, 'filled', 'Work Station', 'Pioneer Kipsongo'))
                 cur.execute("""
                     INSERT INTO stock_change (gas_id, action, quantity_change, notes)
                     VALUES (%s,'stock_in',+1,'empty from kipsongo')
@@ -1132,7 +1374,7 @@ def submit_sale():
                 cur.execute("""
                     INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
                     VALUES (%s, %s, %s, %s)
-                """, (gas_id, 'filled', 'station', 'Mama Pam'))
+                """, (gas_id, 'filled', 'Work Station', 'Mama Pam'))
                 cur.execute("""
                     INSERT INTO stock_change (gas_id, action, quantity_change, notes)
                     VALUES (%s,'stock_in',+1,'empty from mama pam')
@@ -1142,7 +1384,7 @@ def submit_sale():
 
             elif src_external:
                 # user only types the free‑text box “external_value”
-                ext_value = request.form.get("external_value", "").strip()
+                ext_value = request.form.get("external_details", "").strip()
                 if not ext_value:
                     ext_value = "external-unknown"
 
@@ -1593,184 +1835,7 @@ def record_delivery_sale():
 
 
 # --- GAS SOURCE HANDLER ---
-def handle_gas_source(source_name, session_key, table_name, template_name):
-    conn = get_connection()
-    cur = conn.cursor()
 
-    # Fetch source-specific gas data to navigate through
-    cur.execute(f"""
-        SELECT t.gas_id, g.gas_name, t.number_of_gas
-        FROM {table_name} t
-        JOIN gas_table g ON t.gas_id = g.gas_id
-        ORDER BY t.gas_id
-    """)
-    source_gas = cur.fetchall()
-
-    # Debugging Output
-    print(f"[DEBUG] Source Gas Data: {source_gas}")
-
-    # Check if source_gas is empty
-    if not source_gas:
-        print("[DEBUG] No gases found in source table.")
-        current_gas = (None, "No Gas Available", 0)
-    else:
-        # Set index if not already set in session
-        if session_key not in session:
-            session[session_key] = 0
-
-        current_index = session[session_key]
-        current_gas = source_gas[current_index]
-
-    if request.method == 'POST':
-        action = request.form.get('action')
-        nav = request.form.get('nav')
-        quantity = request.form.get('quantity')
-
-        # Ensure quantity is a positive integer
-        try:
-            quantity = int(quantity) if quantity else 1
-        except ValueError:
-            quantity = 1 
-
-        print(f"[DEBUG] Action received: {action}, Nav: {nav}, Quantity: {quantity}")
-
-        # Navigation logic based on source table records
-        if nav == 'next':
-            session[session_key] = (current_index + 1) % len(source_gas) if source_gas else 0
-        elif nav == 'prev':
-            session[session_key] = (current_index - 1) % len(source_gas) if source_gas else 0
-
-        # Add +1 logic - Only increase quantity by 1 for the selected gas
-        elif action == 'add_1':
-            gas_id = current_gas[0] if current_gas[0] else None
-
-            if gas_id:
-                try:
-                    cur.execute(f"""
-                        UPDATE {table_name}
-                        SET number_of_gas = number_of_gas + 1
-                        WHERE gas_id = %s
-                    """, (gas_id,))
-                    conn.commit()  # Commit the update
-                    flash(f"1 unit added to {source_name} successfully.")
-                except Exception as e:
-                    flash(f"Error adding gas to {source_name}: {e}")
-                    print(f"[DEBUG] Error adding gas: {e}")
-
-        # Add logic - Insert or update the source table
-        elif action == 'add':
-            gas_id = request.form.get('gas_id')
-
-            if gas_id:
-                try:
-                    cur.execute(f"""
-                        INSERT INTO {table_name} (gas_id, number_of_gas)
-                        VALUES (%s, %s)
-                        ON CONFLICT (gas_id) DO UPDATE
-                        SET number_of_gas = {table_name}.number_of_gas + %s
-                    """, (gas_id, quantity, quantity))
-                    conn.commit()  # Commit the insert/update
-                    flash(f"{quantity} units added to {source_name} successfully.")
-                except Exception as e:
-                    flash(f"Error adding gas to {source_name}: {e}")
-                    print(f"[DEBUG] Error adding gas: {e}")
-
-        # Fetch the updated source-specific gas data (after commit)
-        cur.execute(f"""
-            SELECT t.gas_id, g.gas_name, t.number_of_gas
-            FROM {table_name} t
-            JOIN gas_table g ON t.gas_id = g.gas_id
-            ORDER BY t.gas_id
-        """)
-        source_gas = cur.fetchall()
-
-        # Debugging Output for updated data
-        print(f"[DEBUG] Updated Source Gas Data: {source_gas}")
-
-    cur.close()
-    conn.close()
-
-    # Render the template with updated data
-    return render_template(template_name, 
-                           source_gas=source_gas, 
-                           current_gas=current_gas)
-
-# --- ROUTES ---
-@app.route('/external-u', methods=['GET', 'POST'])
-def external_u():
-    return handle_gas_source(
-        source_name="External Gas",
-        session_key="external_index",
-        table_name="external_gas_in_ukweli",
-        template_name="external-u.html"
-    )
-
-@app.route('/mpam-gas-u', methods=['GET', 'POST'])
-def mpam_gas_u():
-    return handle_gas_source(
-        source_name="Mama Pam Gas",
-        session_key="mpam_index",
-        table_name="mama_pam_gas_in_ukweli",
-        template_name="mpam-gas-u.html"
-    )
-
-@app.route('/kipsongo-gas-u', methods=['GET', 'POST'])
-def kipsongo_gas_u():
-    conn = get_connection()
-    cur = conn.cursor()
-
-    # Fetch gases for dropdown
-    cur.execute("SELECT gas_id, gas_name FROM gas_table;")
-    gases = cur.fetchall()
-
-    # Fetch source-specific gas data to navigate through
-    cur.execute("""
-        SELECT g.gas_id, g.gas_name, k.number_of_gas 
-        FROM kipsongo_gas_in_ukweli k
-        LEFT JOIN gas_table g ON k.gas_id = g.gas_id
-        ORDER BY g.gas_id
-    """)
-    source_gas = cur.fetchall()
-
-    # Debugging Output
-    print(f"[DEBUG] Gases fetched: {gases}")
-    print(f"[DEBUG] Source Gas Data: {source_gas}")
-
-    # Check if source_gas is empty
-    if not source_gas:
-        print("[DEBUG] No gases found in source table.")
-        current_gas = (None, "No Gas Available", 0)
-    else:
-        # Set index if not already set in session
-        if "kipsongo_index" not in session:
-            session["kipsongo_index"] = 0
-
-        current_index = session["kipsongo_index"]
-        current_gas = source_gas[current_index]
-
-    cur.close()
-    conn.close()
-
-    # Render the template with required data
-    return render_template("kipsongo-gas-u.html", 
-                           gases=gases, 
-                           source_gas=source_gas, 
-                           current_gas=current_gas)
-
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    session.clear()
-    return redirect('/')
-
-@app.route('/delete-kipsongo-gas/<int:id>', methods=['POST'])
-def delete_kipsongo_gas(id):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM kipsongo_gas_in_ukweli WHERE id = %s", (id,))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('add_kipsongo_gas'))
 
 # --- EXTRA PAGES ---
 
@@ -1862,6 +1927,20 @@ def refill_page():
         gases     = gases,
         history   = history
     )
+# finance.py (or place near the other routes) ──────────────────────────
+@app.route("/finance")
+@admin_required                # <- only admins may view
+def finance_page():
+    """
+    High‑level financial dashboard – you’ll flesh this out later
+    with profit, cost, etc.
+    """
+    # example: pull one number so the page is never empty
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(SUM(profit),0) FROM profit_table")
+        total_profit = float(cur.fetchone()[0])
+
+    return render_template("finance.html", total_profit=total_profit)
 
 @app.route('/profit')
 def view_profit():

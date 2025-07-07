@@ -4,13 +4,18 @@
     <title>Gas Sale Entry</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        .debt-row { background-color: #cce5ff !important; }
+        .debt-row { background-color: #e71515 !important; }
 .mama-pam-row { background-color: #ffe0e0 !important; }
-.external-row { background-color: #e0f7fa !important; }
-.kipsongo-row { background-color: #e8f5e9 !important; }
+.external-row { background-color: #047685 !important; }
+.kipsongo-row { background-color: #06fa1b !important; }
 .normal-sale-row {
-    background-color: white; /* Pure white for normal */
+    background-color: rgb(255, 255, 255); /* Pure white for normal */
 }
+.debt-color { background-color: #e71515; }
+        .mama-pam-color { background-color: #ffe0e0; }
+        .external-color { background-color: #047685 ; }
+        .kipsongo-color { background-color: #06fa1b; }
+
 
 
         body {
@@ -153,11 +158,7 @@
             font-size: 13px;
         }
 
-        .debt-color { background-color: #cce5ff; }
-        .mama-pam-color { background-color: #ffe0e0; }
-        .external-color { background-color: #e0f7fa; }
-        .kipsongo-color { background-color: #e8f5e9; }
-
+        
         @media(min-width: 768px) {
             .container {
                 flex-direction: row;
@@ -245,7 +246,7 @@ function handlePrepayLinkClick() {
     <div id="external_box" style="display:none; margin-top:8px;">
         <label>External details (supplier, workstation …):</label>
         <input type="text" name="external_details"
-               placeholder="e.g. Work Station / Mr Omondi">
+               placeholder="e.g.Kafush">
     </div>
 
     <button type="submit">Submit Sale</button>

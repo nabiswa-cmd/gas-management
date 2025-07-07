@@ -69,9 +69,7 @@
         <button type="submit" class="card-btn"><i class="fas fa-gas-pump"></i>Refill Gas</button>
     </form>
 
-    <form action="/manage-pricing" method="get">
-        <button type="submit" class="card-btn"><i class="fas fa-tags"></i>Buying Prices</button>
-    </form>
+   
 
     <form action="/gas-form" method="get">
         <button type="submit" class="card-btn"><i class="fas fa-plus-square"></i>Add / View Gas</button>
@@ -90,17 +88,16 @@
 
 
     <a href="{{ url_for('view_logs') }}" class="card-btn"><i class="fas fa-history"></i>Stock Logs</a>
-
-    <a href="/external-u" class="card-btn"><i class="fas fa-shipping-fast"></i>External</a>
-    <a href="/kipsongo-gas-u" class="card-btn"><i class="fas fa-warehouse"></i>Kipsongo</a>
-    <a href="/mpam-gas-u" class="card-btn"><i class="fas fa-store"></i>Mama Pam</a>
-    <a href="{{ url_for('view_profit') }}" class="card-btn">
-   <i class="fas fa-chart-line"></i>Daily Profit<a href="{{ url_for('profit_list') }}" class="card-btn">
-    <i class="fas fa-chart-line"></i> View Profit List
-</a>
+    {% if role == 'admin' %}
+        <a class="card-btn" href="{{ url_for('manage_users') }}">👤 Manage Users</a>
+        <a class="card-btn" href="{{ url_for('finance_page') }}"> Manage Finance</a>
+    {% endif %}
+    <a href="{{ url_for('empty_cylinders_page') }}" class="card-btn"><i class="fas fa-history"></i>empty_cylinders_page</a>
+    
 
 </a>
-
+ <a href="{{ url_for('my_account') }}" class="card-btn"><i class="fas fa-history"></i>my_account</a>
+</a>
 </div>
 
 <div class="logout-section">

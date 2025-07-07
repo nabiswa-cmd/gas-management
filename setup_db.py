@@ -1,6 +1,6 @@
 import psycopg2
 
-DATABASE_URL = "postgresql://james:SPpKLyvgRTImuzDFaUy4thGKojpKfuBY@dpg-d120e495pdvs73c758og-a.oregon-postgres.render.com/ukwelidb"
+DATABASE_URL = "postgresql://postgres:[James3182.]@db.bjhhadfkerhrejmuhogb.supabase.co:5432/postgres"
 try:
     # ✅ Connect securely using SSL
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
