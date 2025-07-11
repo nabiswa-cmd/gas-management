@@ -205,6 +205,18 @@ CREATE TABLE IF NOT EXISTS stock_in (
     time_in         TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 """)
+    cur.execute("""
+CREATE TABLE profit_table (
+    profit_id    SERIAL PRIMARY KEY,
+    sale_id      INTEGER REFERENCES sales_table(sale_id) ON DELETE SET NULL,
+    gas_id       INTEGER REFERENCES gas_table(gas_id)    ON DELETE CASCADE,
+    company_id   INTEGER REFERENCES buying_company(company_id) ON DELETE SET NULL,
+    qty          INTEGER NOT NULL DEFAULT 1,
+    revenue      NUMERIC(10,2) NOT NULL,
+    cost         NUMERIC(10,2) NOT NULL,
+    time_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+""")
 
 
 except Exception as e:

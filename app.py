@@ -7,12 +7,14 @@ from decimal import Decimal
 from psycopg2.extras import RealDictCursor
 import os
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+load_dotenv()
 
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.environ['DATABASE_URL']
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -1929,18 +1931,24 @@ def refill_page():
     )
 # finance.py (or place near the other routes) ──────────────────────────
 @app.route("/finance")
-@admin_required                # <- only admins may view
+@admin_required  # <- only admins may view
 def finance_page():
     """
-    High‑level financial dashboard – you’ll flesh this out later
-    with profit, cost, etc.
+    High‑level financial dashboard – profit, cost, etc.
     """
-    # example: pull one number so the page is never empty
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT COALESCE(SUM(profit),0) FROM profit_table")
-        total_profit = float(cur.fetchone()[0])
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(revenue - cost), 0) 
+                FROM profit_table
+            """)
+            total_profit = float(cur.fetchone()[0])
 
-    return render_template("finance.html", total_profit=total_profit)
+        return render_template("finance.html", total_profit=total_profit)
+
+    except Exception as e:
+        flash(f"Finance page error: {e}", "error")
+        return redirect(url_for("dashboard"))
 
 @app.route('/profit')
 def view_profit():
