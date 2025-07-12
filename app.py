@@ -47,38 +47,40 @@ def home():
     return render_template("login.html")
 
 
-@app.post("/login")
+@app.route("/login", methods=["POST"])
 def login():
-    username = request.form["username"].strip().lower()
-    password = request.form["password"].strip()
+    username = request.form["username"].lower()
+    password = request.form["password"]
 
     try:
         with get_connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT user_id, username, role        -- ↙ role column!
-                FROM   users
-                WHERE  username = %s AND password = %s
-                """,
-                (username, password)
-            )
-            row = cur.fetchone()
+            cur.execute("""
+                SELECT user_id, username, password, role 
+                FROM users 
+                WHERE LOWER(username) = %s
+            """, (username,))
+            user = cur.fetchone()
 
-        if row:
-            user_id, uname, role = row
-            # ─ store details in session ─
-            session["user_id"] = user_id
-            session["username"] = uname
-            session["role"] = role or "user"        # default non‑admin
-            flash("Login successful ✅", "success")
-            return redirect(url_for("dashboard"))
+        if user:
+            user_id, uname, stored_password, role = user
 
-        flash("Invalid credentials ❌", "error")
-        return redirect(url_for("home"))
+            # 💬 Compare directly if using plain-text
+            if password == stored_password:
+                session["user_id"] = user_id
+                session["username"] = uname
+                session["role"] = role or "user"
+                flash("Login successful ✅", "success")
+                return redirect(url_for("dashboard"))
+            else:
+                flash("❌ Incorrect password", "error")
+        else:
+            flash("❌ User not found", "error")
 
     except Exception as e:
         flash(f"Database error: {e}", "error")
-        return redirect(url_for("home"))
+
+    return redirect(url_for("home"))
+
 
 
 @app.route("/dashboard")
@@ -670,7 +672,7 @@ def empty_cylinders_page():
 # POST /update-user/<id>  – change username / password / role
 # POST /delete-user/<id>  – drop user
 # ───────────────────────────────────────────────────────────────
-from werkzeug.security import generate_password_hash
+
 
 @app.route("/manage-users")
 def manage_users():
@@ -694,7 +696,7 @@ def add_user():
             cur.execute("""
                 INSERT INTO users (username,password,role)
                 VALUES (%s,%s,%s)
-            """, (uname, generate_password_hash(pwd), role))
+            """, (uname,pwd, role))
             conn.commit()
             flash("User added ✔️","success")
     except Exception as e:
@@ -719,7 +721,7 @@ def update_user(uid):
                            password=%s,
                            role=%s
                      WHERE user_id=%s
-                """, (uname, generate_password_hash(pwd), role, uid))
+                """, (uname, pwd, role, uid))
             else:            # keep old password
                 cur.execute("""
                     UPDATE users
