@@ -7,7 +7,8 @@ from decimal import Decimal
 from psycopg2.extras import RealDictCursor
 import os
 from werkzeug.utils import secure_filename
-
+from dotenv import load_dotenv
+load_dotenv()
 
 
 app = Flask(__name__)
@@ -283,56 +284,48 @@ def add_supplier():
 @app.route('/set-price', methods=['POST'])
 def set_price():
     comp_id = int(request.form['company_id'])
-    gid_raw = request.form['gas_id']            # 'all_below', 'all_above', or number
+    gid_raw = request.form['gas_id']
     refill  = float(request.form['refill_price'] or 0)
-    full    = float(request.form['full_price']  or 0)
+    full    = float(request.form['full_price'] or 0)
 
     with get_connection() as conn, conn.cursor() as cur:
 
-        # ───────── bulk update rules ─────────────────────────────
         if gid_raw == "all_below":
-            # brands whose name *does NOT* contain “13”
+            # Get all gas IDs not containing "13"
             cur.execute("""
-                UPDATE company_gas_price AS cgp
-                   SET refill_price = %s,
-                       full_price   = %s,
-                       last_updated = NOW()
-                FROM gas_table g
-               WHERE cgp.company_id = %s
-                 AND cgp.gas_id     = g.gas_id
-                 AND g.gas_name NOT ILIKE '%%13%%'
-            """, (refill, full, comp_id))
+                SELECT gas_id FROM gas_table
+                WHERE gas_name NOT ILIKE '%%13%%'
+            """)
+            gas_ids = [row[0] for row in cur.fetchall()]
 
         elif gid_raw == "all_above":
-            # brands whose name *does* contain “13”  (e.g. “Afri 13 kg”)
+            # Get all gas IDs containing "13"
             cur.execute("""
-                UPDATE company_gas_price AS cgp
-                   SET refill_price = %s,
-                       full_price   = %s,
-                       last_updated = NOW()
-                FROM gas_table g
-               WHERE cgp.company_id = %s
-                 AND cgp.gas_id     = g.gas_id
-                 AND g.gas_name ILIKE '%%13%%'
-            """, (refill, full, comp_id))
+                SELECT gas_id FROM gas_table
+                WHERE gas_name ILIKE '%%13%%'
+            """)
+            gas_ids = [row[0] for row in cur.fetchall()]
 
-        # ───────── single‑brand path (unchanged) ────────────────
         else:
-            gid = int(gid_raw)
+            # Only one gas selected
+            gas_ids = [int(gid_raw)]
+
+        # Insert or update all selected gas IDs
+        for gid in gas_ids:
             cur.execute("""
-                INSERT INTO company_gas_price
-                      (company_id, gas_id, refill_price, full_price)
+                INSERT INTO company_gas_price (company_id, gas_id, refill_price, full_price)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (company_id, gas_id) DO UPDATE
-                  SET refill_price = %s,
-                      full_price   = %s,
-                      last_updated = NOW()
+                SET refill_price = %s,
+                    full_price   = %s,
+                    last_updated = NOW()
             """, (comp_id, gid, refill, full, refill, full))
 
         conn.commit()
 
     flash("Price saved.", "success")
     return redirect(url_for('manage_pricing'))
+
 # ── show edit form ─────────────────────────────────────────────
 
 
@@ -450,14 +443,14 @@ def collect_prepaid(prepaid_id):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # 1. Get prepaid record
-                cur.execute("SELECT gas_id, empty_given FROM prepaid_sales WHERE id = %s", (prepaid_id,))
+                cur.execute("SELECT gas_id, empty_given, customer_name FROM prepaid_sales WHERE id = %s", (prepaid_id,))
                 record = cur.fetchone()
-
+                
                 if not record:
                     flash("❌ Prepaid record not found", "error")
                     return redirect(url_for('prepaid_list'))
 
-                gas_id, empty_given = record
+                gas_id, empty_given, customer_name = record
 
                 # 2. Check gas availability
                 cur.execute("SELECT filled_cylinders FROM gas_table WHERE gas_id = %s", (gas_id,))
@@ -496,11 +489,14 @@ def collect_prepaid(prepaid_id):
                         cur.execute("""
                         INSERT INTO stock_out (gas_id, cylinder_state, destination_type, destination_value)
                         VALUES (%s, 'filled', 'customer', %s)
-                    """, (gas_id, ['customer_name']))
+                    """, (gas_id,customer_name))
+                        note = f"Prepaid collection without empty by {customer_name}"
+
                         cur.execute("""
                             INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                            VALUES (%s, 'stock_out', -1, 'Prepaid collection without empty')
-                        """, (gas_id,))
+                            VALUES (%s, 'stock_out', -1, %s)
+                        """, (gas_id, note))
+
 
                 # 5. Delete from prepaid_sales
                 cur.execute("DELETE FROM prepaid_sales WHERE id = %s", (prepaid_id,))
@@ -508,6 +504,7 @@ def collect_prepaid(prepaid_id):
                 conn.commit()
                 flash("✅ Collection completed successfully.", "success")
                 return redirect(url_for('prepaid_list'))
+            
 
     except Exception as e:
         flash(f"❌ Error during collection: {e}", "error")
@@ -835,7 +832,7 @@ def add_gas_debt():
 
     if request.method == 'GET':
         if not gas_id:
-            flash("Gas ID is required.", "danger")
+            flash("Gas name must be selected to get into gas depth form.", "danger")
             cur.close()
             conn.close()
             return redirect(url_for('sales'))
@@ -857,22 +854,23 @@ def add_gas_debt():
 
     
         
-    
     if request.method == 'POST':
-            gas_id = request.form['gas_id']
-            amount_paid = float(request.form.get('amount_paid', 0))
+        gas_id = request.form['gas_id']
+        amount_paid = float(request.form.get('amount_paid', 0))
+        amount_to_be_paid = float(request.form['amount_to_be_paid'])
+        date_to_be_paid = request.form['date_to_be_paid']
+        authorized_by = request.form['authorized_by']
+        empty_given = 'empty_cylinder_given' in request.form
+        customer_name = request.form['customer_name']
+        customer_phone = request.form['customer_phone']
+        customer_address = request.form['customer_address']
+        
+        # Handle image upload as base64 or skip
+        customer_picture_file = request.files.get('customer_picture')
+        customer_picture = customer_picture_file.read().decode('latin1') if customer_picture_file else None
 
-            amount_to_be_paid = float(request.form['amount_to_be_paid'])
-            date_to_be_paid = request.form['date_to_be_paid']
-            authorized_by = request.form['authorized_by']
-            empty_given = 'empty_cylinder_given' in request.form
-            customer_name = request.form['customer_name']
-            customer_phone = request.form['customer_phone']
-            customer_address = request.form['customer_address']
-            customer_picture = request.files.get('customer_picture')
-            image_data = customer_picture.read() if customer_picture else None
-
-            cur.execute("""
+        # 🟩 Insert gas debt
+        cur.execute("""
             INSERT INTO gas_debts (
                 gas_id, amount_paid, amount_to_be_paid, date_to_be_paid,
                 authorized_by, empty_cylinder_given, customer_name,
@@ -881,50 +879,57 @@ def add_gas_debt():
         """, (
             gas_id, amount_paid, amount_to_be_paid, date_to_be_paid,
             authorized_by, empty_given, customer_name,
-            customer_phone, customer_address, image_data
+            customer_phone, customer_address, customer_picture
         ))
 
-
-            # Update gas stock
-            if empty_given:
-                cur.execute("""
-                    UPDATE gas_table
-                    SET filled_cylinders = filled_cylinders - 1,
-                        empty_cylinders = empty_cylinders + 1
-                    WHERE gas_id = %s
-                """, (gas_id,))
-                cur.execute("""
-                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                            VALUES (%s, 'filled decrease while empty increase', 0,  %s)
-                        """), (gas_id, f"gas collection without payment by '{customer_name}'")
-
-            else:
-                cur.execute("""
-                    UPDATE gas_table
-                    SET filled_cylinders = filled_cylinders - 1
-                    WHERE gas_id = %s
-                """, (gas_id,))
-                cur.execute("""
-                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                            VALUES (%s, 'filled decrease', -1,  %s)
-                        """, (gas_id, f"gas collection without payment no empty by '{customer_name}'"))
-
-                # Record gas going out in stock_out table
-                cur.execute("""
-                    INSERT INTO stock_out (
+        # 🟩 Update gas stock
+        if empty_given:
+            # Decrease filled, increase empty
+            cur.execute("""
+                UPDATE gas_table
+                SET filled_cylinders = filled_cylinders - 1,
+                    empty_cylinders = empty_cylinders + 1
+                WHERE gas_id = %s
+            """, (gas_id,))
+            
+            # Log change
+            cur.execute("""
+                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                gas_id, 'filled decrease while empty increase', 0,
+                f"Gas collection without payment by '{customer_name}'"
+            ))
+            
+        else:
+            # Decrease filled only
+            cur.execute("""
+                UPDATE gas_table
+                SET filled_cylinders = filled_cylinders - 1
+                WHERE gas_id = %s
+            """, (gas_id,))
+            
+            # Stock out to customer
+            cur.execute("""
+                INSERT INTO stock_out (
                     gas_id, cylinder_state, destination_type, destination_value
-                    ) VALUES (%s, %s, %s, %s)
-                   """, (
-        gas_id, 'filled', 'customer', customer_name
-    ))
-                cur.execute("""
-                            INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                            VALUES (%s, 'stock change', -1, %s)
-                        """, (gas_id, f"gas collection without payment no empty by '{customer_name}'"))
+                ) VALUES (%s, %s, %s, %s)
+            """, (
+                gas_id, 'filled', 'customer', customer_name
+            ))
+            
+            # Log change
+            cur.execute("""
+                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                gas_id, 'filled decrease', -1,
+                f"Gas collection without payment, no empty returned by '{customer_name}'"
+            ))
 
-            conn.commit()
-            flash("Gas debt added successfully.", "success")
-            return redirect(url_for('add_gas_debt', gas_id=gas_id))  # Redirect to GET after POST
+        conn.commit()
+        flash("Gas debt added successfully.", "success")
+        return redirect(url_for('add_gas_debt', gas_id=gas_id))
 
         
             
@@ -1463,8 +1468,6 @@ def profit_list():
     grouped.sort(key=lambda x: x["day"], reverse=True)
 
     return render_template("profit_list.html", grouped=grouped)
-
-
 @app.route('/stock-out', methods=['GET', 'POST'])
 def stock_out():
     conn = get_connection()
@@ -1527,6 +1530,15 @@ def stock_out():
                     ) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                 """, (gas_id, cylinder_state, destination_type, destination_value))
 
+                # Add to stock_change log
+                note = f"Stock out to {destination_type}: {destination_value}"
+                change = -1
+                action = "stock_out_" + cylinder_state
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s, %s, %s, %s)
+                """, (gas_id, action, change, note))
+
                 conn.commit()
                 message = "Stock out entry saved successfully."
 
@@ -1578,6 +1590,40 @@ def stock_out():
                            users=users,
                            stock_out_records=stock_out_list,
                            message=message)
+@app.route('/gas-summary')
+def gas_summary():
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                      CASE 
+                        WHEN gas_name ILIKE '%13%' THEN '13kg'
+                        ELSE 'non-13kg'
+                      END AS gas_type,
+                      SUM(empty_cylinders) AS total_empty,
+                      SUM(filled_cylinders) AS total_filled,
+                      SUM(empty_cylinders + filled_cylinders) AS total_cylinders
+                    FROM gas_table
+                    GROUP BY gas_type;
+                """)
+                rows = cur.fetchall()
+
+        summary = []
+        for row in rows:
+            summary.append({
+                "type": row[0],
+                "empty": row[1],
+                "filled": row[2],
+                "total": row[3]
+            })
+
+        return render_template("gas_summary.html", summary=summary)
+
+    except Exception as e:
+        flash(f"Error loading gas summary: {e}", "error")
+        return redirect(url_for("dashboard"))
+
 
 @app.route('/add-stock-out', methods=['POST'])
 def add_stock_out():
