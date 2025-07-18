@@ -1035,40 +1035,44 @@ def stock_in_page():
 # ------------------------------------------------------------------
 #  POST /add-stock-in   – one cylinder INTO storage
 # ------------------------------------------------------------------
-@app.post("/add-stock-in")
+@app.route("/add-stock-in", methods=["GET", "POST"])
 def add_stock_in():
-    try:
-        gid   = int(request.form["gas_id"])
-        state = request.form["cylinder_state"]              # 'empty' / 'filled'
-        src_t = request.form["source_type"]
-        src_v = request.form["source_value"].strip()
+    if request.method == "POST":
+        try:
+            gid   = int(request.form["gas_id"])
+            state = request.form["cylinder_state"]
+            src_t = request.form["source_type"]
+            src_v = request.form["source_value"].strip()
 
-        with get_connection() as conn, conn.cursor() as cur:
-            # ➊ write one row into stock_in
-            cur.execute("""
-                INSERT INTO stock_in (gas_id, cylinder_state,
-                                       source_type, source_value)
-                VALUES (%s,%s,%s,%s)
-            """, (gid, state, src_t, src_v))
+            with get_connection() as conn, conn.cursor() as cur:
+                # Insert, update, log as before
+                cur.execute("""
+                    INSERT INTO stock_in (gas_id, cylinder_state, source_type, source_value)
+                    VALUES (%s, %s, %s, %s)
+                """, (gid, state, src_t, src_v))
 
-            # ➋ update main stock counts
-            column = "filled_cylinders" if state == "filled" else "empty_cylinders"
-            cur.execute(f"UPDATE gas_table SET {column} = {column} + 1 WHERE gas_id = %s", (gid,))
+                column = "filled_cylinders" if state == "filled" else "empty_cylinders"
+                cur.execute(f"""
+                    UPDATE gas_table SET {column} = {column} + 1 WHERE gas_id = %s
+                """, (gid,))
 
-            # ➌ stock_change log ( +1 because item came **in** )
-            note = f"Stock‑IN ({state}) from {src_t}: {src_v}"
-            cur.execute("""
-                INSERT INTO stock_change (gas_id, action, quantity_change, notes)
-                VALUES (%s,'stock_in',+1,%s)
-            """, (gid, note))
+                note = f"Stock‑IN ({state}) from {src_t}: {src_v}"
+                cur.execute("""
+                    INSERT INTO stock_change (gas_id, action, quantity_change, notes)
+                    VALUES (%s, 'stock_in', 1, %s)
+                """, (gid, note))
 
-            conn.commit()
-        flash("Stock‑in recorded ✔️", "success")
+                conn.commit()
+            flash("Stock‑in recorded ✔️", "success")
 
-    except Exception as e:
-        flash(f"Error: {e}", "error")
+        except Exception as e:
+            flash(f"Error: {e}", "error")
 
+        return redirect(url_for("stock_in_page"))
+
+    # If it's GET, just show the page (or redirect)
     return redirect(url_for("stock_in_page"))
+
 
 # ------------------------------------------------------------------
 #  POST /return-stock-in – return N cylinders to the origin
@@ -1421,8 +1425,7 @@ def submit_sale():
 @app.route("/profit-list")
 def profit_list():
     with get_connection() as conn, conn.cursor() as cur:
-
-        # fetch every profit row with brand name + time
+        # Fetch every profit row with brand name + time
         cur.execute("""
             SELECT  p.profit_id,
                     g.gas_name,
@@ -1438,17 +1441,21 @@ def profit_list():
         """)
         rows = cur.fetchall()
 
-    # ---- group in Python -------------------------------------------------
-    day_map = {}             # {date : [dict, …]}
+    # ---- Group in Python -------------------------------------------------
+    day_map = {}  # {date : [dict, …]}
     for pid, gname, qty, rev, cst, prf, day, tm in rows:
         rec = {
-            "id": pid, "gas": gname, "qty": qty,
-            "rev": float(rev), "cost": float(cst), "prf": float(prf),
-            "clock": tm.strftime("%H:%M")
+            "id": pid,
+            "gas": gname,
+            "qty": qty or 0,
+            "rev": float(rev or 0),
+            "cost": float(cst or 0),
+            "prf": float(prf or 0),
+            "clock": tm.strftime("%H:%M") if tm else "00:00"
         }
         day_map.setdefault(day, []).append(rec)
 
-    # build a list with totals ready for Jinja
+    # ---- Build a list with totals ready for Jinja ------------------------
     grouped = []
     for d, lst in day_map.items():
         tot_qty   = sum(r["qty"]  for r in lst)
@@ -1464,10 +1471,11 @@ def profit_list():
             "tot_prf":  tot_prf
         })
 
-    # newest day first
+    # Newest day first
     grouped.sort(key=lambda x: x["day"], reverse=True)
 
     return render_template("profit_list.html", grouped=grouped)
+
 @app.route('/stock-out', methods=['GET', 'POST'])
 def stock_out():
     conn = get_connection()
@@ -2010,10 +2018,16 @@ def view_profit():
             ORDER  BY day DESC
         """)
         daily = [
-            {"day": d, "revenue": float(r), "cost": float(c), "profit": float(p)}
+            {
+                "day": d,
+                "revenue": float(r or 0),
+                "cost": float(c or 0),
+                "profit": float(p or 0)
+            }
             for d, r, c, p in cur.fetchall()
         ]
     return render_template("profit.html", daily=daily)
+
 
 # ───────────────────────────────────────────────
 # POST /add-refill  – save refill
