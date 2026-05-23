@@ -15,7 +15,7 @@ Built using **Flask**, **PostgreSQL**, and **Python**, it allows user login, das
 
 ## Author
 **Nabiswa James Kiriru**
-the web application can be access through https://gas-management.onrender.com/sales
+the web application can be access through https://gas-management.vercel.app
 new user can access as a guest 
 username guest
 password 1234
